@@ -1,6 +1,7 @@
 #include <map>
 #include <tuple>
 #include <utility>
+#include <vector>
 
 #include "point_compare.hpp"
 
@@ -49,12 +50,40 @@ std::tuple<bool, int, cv::Point2f> find_cell_side_length_cell_loc(
     int const cell_side_length_max,
     double const similarity_ratio_min);
 
+// <cross_locs_init> must correspond with <indices_init>
 std::map<cv::Point, cv::Point2f, PointCompare> get_cross_locs_map(
     cv::Mat const& image_thresholded,
-    cv::Point2f const& cross_loc_init,
+    std::vector<cv::Point2f> const& cross_locs_init,
+    std::vector<cv::Point> const& indices_init,
+    std::vector<cv::Point> const& indices_deltas,
+    std::vector<cv::Point2f> const& cross_loc_deltas,
     int const cell_side_length,
     cv::Mat const& mask_cross,
     int const mask_cross_perimeter,
     double const similarity_ratio_min);
+
+cv::Rect get_bounding_rectangle(std::map<cv::Point, cv::Point2f, PointCompare> const& cross_locs_map);
+
+cv::Mat convert_to_mat(std::map<cv::Point, cv::Point2f, PointCompare> const& cross_locs_map);
+
+cv::Mat get_cross_locs_main_mat(
+    cv::Mat const& image_thresholded,
+    cv::Point2f const& cross_loc_init,
+    int const cell_side_length,
+    double const similarity_ratio_min);
+
+cv::Mat get_cross_locs_top_mat(
+    cv::Mat const& image_thresholded,
+    cv::Mat const& cross_locs_main_mat,
+    int const cell_side_length,
+    double const similarity_ratio_min);
+
+cv::Mat get_cross_locs_left_mat(
+    cv::Mat const& image_thresholded,
+    cv::Mat const& cross_locs_main_mat,
+    int const cell_side_length,
+    double const similarity_ratio_min);
+
+void print(cv::Mat const& cross_locs_mat);
 
 }

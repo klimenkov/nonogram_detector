@@ -26,46 +26,38 @@ int main()
 
     // -----------------
 
-    auto const cell_side_length_odd = cell_side_length / 2 * 2 + 1;
-    auto const line_width = static_cast<int>(cell_side_length / 6.5);
-    auto const line_width_half = line_width / 2;
-    cv::Mat mask_cross;
-    int mask_cross_perimeter;
-    std::tie(mask_cross, mask_cross_perimeter) =
-        ng::get_mask_cross(cell_side_length_odd, line_width_half);
-
-    auto begin = std::chrono::steady_clock().now();
-
-    auto const cross_locs_map = ng::get_cross_locs_map(
+    auto const cross_locs_main_mat = ng::get_cross_locs_main_mat(
         image_thresholded,
-        cell_loc,
+        { cell_loc },
         cell_side_length,
-        mask_cross,
-        mask_cross_perimeter,
         0.9);
 
-    auto end = std::chrono::steady_clock().now();
+    ng::print(cross_locs_main_mat);
 
-    std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count() << " ms" << std::endl;
+    auto const cross_locs_top_mat = ng::get_cross_locs_top_mat(
+        image_thresholded,
+        cross_locs_main_mat,
+        cell_side_length,
+        0.9);
 
-    std::cout << cross_locs_map.size() << std::endl;
+    ng::print(cross_locs_top_mat);
+
+    //auto const cross_locs_left_mat = ng::get_cross_locs_left_mat(
+    //    image_thresholded,
+    //    cross_locs_main_mat,
+    //    cell_side_length,
+    //    0.9);
+
+    //ng::print(cross_locs_left_mat);
+
+
+    // -----------------------
+
 
     // ------------------
 
-    auto image_copy = cv::imread(image_path);
-    image_copy = ng::resize(image_copy, 800);
-
     image_thresholded *= 255;
 
-    //cv::rectangle(
-    //    image_thresholded,
-    //    cv::Rect(
-    //        cell_loc - cv::Point2f(1.0f, 1.0f),
-    //        cell_loc + cv::Point2f(cell_side_length, cell_side_length) + cv::Point2f(1.0f, 1.0f)),
-    //    128,
-    //    1);
-
-    //cv::imshow("image_thresholded_roi", image_thresholded(ng::get_roi(cell_loc, cv::Size(2 * cell_side_length, 2 * cell_side_length))));
     cv::imshow("image_thresholded", image_thresholded);
     cv::waitKey();
 
