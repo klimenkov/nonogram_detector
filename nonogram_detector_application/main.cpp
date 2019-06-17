@@ -42,13 +42,13 @@ int main()
 
     ng::print(cross_locs_top_mat);
 
-    //auto const cross_locs_left_mat = ng::get_cross_locs_left_mat(
-    //    image_thresholded,
-    //    cross_locs_main_mat,
-    //    cell_side_length,
-    //    0.9);
+    auto const cross_locs_left_mat = ng::get_cross_locs_left_mat(
+        image_thresholded,
+        cross_locs_main_mat,
+        cell_side_length,
+        0.9);
 
-    //ng::print(cross_locs_left_mat);
+    ng::print(cross_locs_left_mat);
 
 
     // -----------------------
