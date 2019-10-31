@@ -1,11 +1,13 @@
 set(HEADERS
 	"include/image_operations.hpp"
-    "include/masks.hpp"
+	"include/grid_detector"
+	"include/masks.hpp"
 	"include/point_compare.hpp")
 
 set(SOURCES
 	"src/image_operations.cpp"
-    "src/masks.cpp"
+	"src/grid_detector"
+	"src/masks.cpp"
 	"src/point_compare.cpp")
 
 add_library(nonogram_detector ${HEADERS} ${SOURCES})

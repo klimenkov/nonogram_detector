@@ -1,64 +1,42 @@
 #include <chrono>
 #include <iostream>
 
-#include "image_operations.hpp"
-#include "masks.hpp"
+#include <opencv2/opencv.hpp>
+
+#include "grid_detector.hpp"
 
 int main()
 {
-    std::string const image_path = R"(C:\Users\klimenkov\Desktop\pc_old\nonograms\nonogram.jpg)";
+    std::string const image_path =
+        R"(C:\Users\klimenkov\Desktop\pc_old\nonograms\nonogram.jpg)";
+    //std::string const image_path =
+    //    R"(C:\Users\klimenkov\Desktop\pc_old\nonograms\photo_2018-08-18_13-28-02.jpg)";
+    //std::string const image_path =
+    //    R"(C:\Users\klimenkov\Desktop\pc_old\nonograms\20180811_114632.jpg)";
 
-    auto image = cv::imread(image_path, cv::IMREAD_GRAYSCALE);
-    image = ng::resize(image, 800);
-    auto const image_thresholded = ng::threshold(image, 15, 5.0);
+    auto image = cv::imread(image_path);
 
-    cv::Point const image_center(image_thresholded.size() / 2);
-    auto const cell_loc_roi = ng::get_roi(image_center, { 50, 50 });
+    //cv::resize(image, image, {}, 0.2, 0.2);
 
-    bool cell_loc_found;
-    int cell_side_length;
-    cv::Point2f cell_loc;
-    std::tie(cell_loc_found, cell_side_length, cell_loc) =
-        ng::find_cell_side_length_cell_loc(image_thresholded, cell_loc_roi, 5, 50, 0.9);
+    //cv::imshow("image", image);
+    //cv::waitKey();
 
-    std::cout << "cell_side_length: " << cell_side_length << std::endl;
-    std::cout << "cell_loc: " << cell_loc << std::endl;
+    ng::CrossLocsDetector cross_loc_detector(900, 15, 9.0, 5, 50, 0.9);
 
-    // -----------------
+    cv::Mat cross_locs_main;
+    cv::Mat cross_locs_top;
+    cv::Mat cross_locs_left;
+    std::tie(cross_locs_main, cross_locs_top, cross_locs_left) =
+        cross_loc_detector.detect(image);
 
-    auto const cross_locs_main_mat = ng::get_cross_locs_main_mat(
-        image_thresholded,
-        { cell_loc },
-        cell_side_length,
-        0.9);
+    auto image_draw =
+        ng::CrossLocsDetector::draw(image, cross_locs_main, cv::Scalar(255, 0, 0));
+    image_draw =
+        ng::CrossLocsDetector::draw(image_draw, cross_locs_top, cv::Scalar(0, 255, 0));
+    image_draw =
+        ng::CrossLocsDetector::draw(image_draw, cross_locs_left, cv::Scalar(0, 0, 255));
 
-    ng::print(cross_locs_main_mat);
-
-    auto const cross_locs_top_mat = ng::get_cross_locs_top_mat(
-        image_thresholded,
-        cross_locs_main_mat,
-        cell_side_length,
-        0.9);
-
-    ng::print(cross_locs_top_mat);
-
-    auto const cross_locs_left_mat = ng::get_cross_locs_left_mat(
-        image_thresholded,
-        cross_locs_main_mat,
-        cell_side_length,
-        0.9);
-
-    ng::print(cross_locs_left_mat);
-
-
-    // -----------------------
-
-
-    // ------------------
-
-    image_thresholded *= 255;
-
-    cv::imshow("image_thresholded", image_thresholded);
+    cv::imshow("image_draw", image_draw);
     cv::waitKey();
 
     return 0;
