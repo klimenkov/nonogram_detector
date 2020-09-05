@@ -119,4 +119,56 @@ std::pair<bool, cv::Point> find_kernel_loc(
 }
 
 
+std::vector<std::vector<cv::Mat>> get_cell_warped_images_vector(cv::Mat const& image, cv::Mat const& cross_locs)
+{
+    std::cout << cross_locs.size() << std::endl;
+
+    auto const cell_warped_side_length = 20;
+    cv::Size const cell_warped_size(cell_warped_side_length, cell_warped_side_length);
+
+    auto const cell_warped_images_vector_size = cross_locs.size() - cv::Size(1, 1);
+
+    std::vector<std::vector<cv::Mat>> cell_warped_images_vector(
+        cell_warped_images_vector_size.height,
+        std::vector<cv::Mat>(cell_warped_images_vector_size.width));
+
+    for (int tl_x = 0, br_x = 1; br_x < cross_locs.cols; ++tl_x, ++br_x)
+    {
+        for (int tl_y = 0, br_y = 1; br_y < cross_locs.rows; ++tl_y, ++br_y)
+        {
+            cv::Point const tl(tl_x, tl_y);
+            cv::Point const tr(br_x, tl_y);
+            cv::Point const br(br_x, br_y);
+            cv::Point const bl(tl_x, br_y);
+
+            cv::Point2f const cell_tl = cross_locs.at<cv::Point>(tl);
+            cv::Point2f const cell_tr = cross_locs.at<cv::Point>(tr);
+            cv::Point2f const cell_br = cross_locs.at<cv::Point>(br);
+            cv::Point2f const cell_bl = cross_locs.at<cv::Point>(bl);
+
+            std::vector<cv::Point2f> const cell_points = {
+                cell_tl, cell_tr, cell_br, cell_bl };
+
+            cv::Point2f const cell_warped_tl(0, 0);
+            cv::Point2f const cell_warped_tr(cell_warped_side_length, 0);
+            cv::Point2f const cell_warped_br(cell_warped_side_length, cell_warped_side_length);
+            cv::Point2f const cell_warped_bl(0, cell_warped_side_length);
+
+            std::vector<cv::Point2f> const cell_warped_points = {
+                cell_warped_tl, cell_warped_tr, cell_warped_br, cell_warped_bl };
+
+            auto const warp_matrix =
+                cv::getPerspectiveTransform(cell_points, cell_warped_points);
+
+            cv::Mat cell_warped_image;
+            cv::warpPerspective(image, cell_warped_image, warp_matrix, cell_warped_size);
+
+            cell_warped_images_vector[tl_y][tl_x] = cell_warped_image;
+        }
+    }
+
+    return cell_warped_images_vector;
+}
+
+
 }

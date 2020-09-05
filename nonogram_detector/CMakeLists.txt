@@ -1,12 +1,12 @@
 set(HEADERS
 	"include/image_operations.hpp"
-	"include/grid_detector"
+	"include/cross_locs_detector.hpp"
 	"include/masks.hpp"
 	"include/point_compare.hpp")
 
 set(SOURCES
 	"src/image_operations.cpp"
-	"src/grid_detector"
+	"src/cross_locs_detector.cpp"
 	"src/masks.cpp"
 	"src/point_compare.cpp")
 

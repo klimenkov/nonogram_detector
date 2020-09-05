@@ -50,4 +50,7 @@ std::pair<bool, cv::Point> find_kernel_loc(
     cv::Point const& anchor = cv::Point(-1, -1));
 
 
+std::vector<std::vector<cv::Mat>> get_cell_warped_images_vector(cv::Mat const& image, cv::Mat const& cross_locs);
+
+
 }

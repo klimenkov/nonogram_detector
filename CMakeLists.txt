@@ -4,3 +4,4 @@ project(nonogram_detector)
 
 add_subdirectory(nonogram_detector)
 add_subdirectory(nonogram_detector_application)
+add_subdirectory(nonogram_detector_test)
