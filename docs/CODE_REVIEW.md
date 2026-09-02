@@ -315,3 +315,60 @@ Remaining as future work (not changed; needs real-photo validation, see
 `nonograms/`): **P2** items 9-12 (perf) and **P3** items 14-15.
 Previously the P0/P1 notes were minimal verified fixes; all other §6 items remain
 recommendations and are now tracked as such above.
+
+### P2 performance work (2026-09-02)
+
+Real-photo validation was completed as the P2 prerequisite (see §7/§9). A
+correctness gate was established using `/tmp/opencode/validate` which measures
+grid-distortion (coefficient of variation of inter-cross spacing) on the real
+photos; success = `found` with worst CV <= 0.08 and grid size >= baseline.
+
+| Image | Baseline best grid | Worst CV |
+|---|---|---|
+| 20180811 (4128x3096) | 30x20 | 0.028 |
+| 20191102 (4128x3096) | 30x45 | 0.043 |
+| 20200511_145923 | 30x45 | 0.048 |
+| 20200511_150216 (portrait) | 30x20 | 0.027 |
+| 20201120_000400 | 30x25 | 0.038 |
+| nonogram.jpg (640x480) | 30x25 | 0.052 |
+| photo_2018 (1280x960) | 60x60 | 0.079 |
+
+7 of 8 photos are detected correctly (the one failure, `vqtsmfq7o3k21.jpg`,
+has perspective distortion the fixed-delta flood-fill cannot track; see §9).
+
+**P2-9 (shrink per-node search ROI): DONE.** Added `get_cross_loc_search_roi`
+returning a `3*cell_side_length/2` box (down from 2x, ~56% smaller area). The
+plan's 1x is geometrically impossible because the cross kernel itself spans
+1.5x a cell side. Small but real saving on the flood-fill.
+
+**P2-10 (1-D projection cell-size estimate): DONE.** Added public static
+`estimate_cell_side_length` recovering the grid period from a 1-D projection
+autocorrelation (first strong local peak), replacing the 46-iteration
+`L in [5,50]` square-mask scan. The old `find_cell_side_length_cell_loc` loop
+is retained as a fallback. Profiling showed the cell-size scan was only
+~9% of runtime (not the ~40% the earlier profile suggested), so this phase
+dropped ~4.8ms -> ~0.8ms; the biggest remaining cost is the cross-expansion
+flood-fill.
+
+**P2-11 (analytic grid extrapolation): NOT adopted.** A post-processing fast
+path (`extrapolate_grid_interior`) was prototyped and reviewed. It is
+structurally unable to engage: its single-global-offset model accumulates
+per-node cross-location noise (~N px over N cells), so it fails its own strict
+verification even on perfectly-uniform synthetic grids, always falling back to
+the BFS. It added no speedup, and a perspective-aware (per-row/col scale) model
+would be needed. The commit was reverted by decision; this remains open future
+work, gated on a perspective-aware model and a genuine engagement test.
+
+**Measured timing** (20180811_114632.jpg; high run-to-run variance in this
+environment, median of 5):
+
+| resize | baseline | after P2-9+10 |
+|---|---|---|
+| 800 | ~54 ms | ~53 ms |
+| 1200 | ~100 ms | ~78 ms |
+
+**P2-12 (parallelize BFS frontier):** not attempted; the flood-fill remains the
+dominant cost and would be the target of any further P2 work (with a
+perspective-aware grid model).
+
+**P3-14/15** (Grid/Detection abstraction; cell decoding) remain future work.
