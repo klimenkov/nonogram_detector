@@ -266,13 +266,26 @@ recommendations (smaller ROI, `matchTemplate`, analytic extrapolation).
 ### Timing
 Full `detect()` calls on 512–800 px synthetic inputs in this environment:
 
-- Failed/empty path: **~40 ms**
+- Failed/empty path: **~14 ms**
 - Successful full main-grid detection (cells in range): **~60 ms**
   (e.g. `nonogram_40_2.png`, `max=600` → `found=1`, main grid 12×14)
 
-A representative (or larger, `N×N` with big `N`) real nonogram photo is needed for
-a production-scale benchmark; none is present in the repo. Add sample images under
-`data/` to enable reproducible benchmarks and regression tests.
+A stage-by-stage profile of the successful path (`max=600`, cell=37):
+
+- `find_cell_side_length_cell_loc` (the `L=5..50` scan): **~26 ms** (~40%)
+- `get_cross_locs_main_mat` (the BFS `filter2D` flood-fill): **~38 ms** (~60%)
+
+So both §3.1 and §3.2 are roughly equal, kernel-convolution-bound costs. The
+reviews' P2-10 (replace the scan with a 1-D projection) targets the scan, and
+P2-9/11 (matchTemplate/analytic extrapolation) target the flood-fill. These are
+left as future work (see §8) and were not changed in this pass because they are
+algorithmic rewrites that could alter detection behavior and the repo at the time
+only had synthetic grids for validation.
+
+Real-world photos ARE present in this working tree under `nonograms/`
+(`2018-2020` photos + `.non` puzzles) but were left untracked. They are the
+natural test set for a production-scale benchmark and for validating any P2
+perf rewrite.
 
 ### Changes applied during verification (P0)
 1. `cross_locs_detector.cpp`: gated the debug `imshow`/`waitKey(0)` behind
@@ -281,5 +294,24 @@ a production-scale benchmark; none is present in the repo. Add sample images und
 2. `cross_locs_detector.cpp`: guards in `detect()` to avoid dividing empty
    matrices and aborting.
 
-These are minimal, verified fixes for confirmed P0 blockers; everything else in
-§6 remains as recommendations.
+## 8. Implementation status (2026-09-02)
+
+All **P0** and **P1** items (§6 items 1-8) are implemented and verified:
+
+- **P0-1** debug `imshow` gate, **P0-2** duplicate `grid_detector` removed.
+- **P1-5** `ng::Detection` struct (`include/detection.hpp`) replaces the
+  `tuple<bool,Mat,Mat,Mat>`; `detect()` and both `main.cpp` callers updated.
+- **P1-6** CMake 3.10, `project(... LANGUAGES CXX)`, `CXX_STANDARD 17`, links only
+  `core/imgproc/highgui/imgcodecs`.
+- **P1-7** app/test read the path from `argv`; interactive window shown only when
+  `DISPLAY` is set; headless save of `grid.png` behind `NG_SAVE_OUTPUT`.
+- **P1-8** dead `std::cout`, commented blocks, unused `augment` param and `print()`
+  removed.
+- **P3-13/P1-new** `nonogram_detector_ut` target with 3 synthetic-grid cases; all
+  pass (`found=1`, grid `>=` expected). Functions as the correctness gate for all
+  refactors.
+
+Remaining as future work (not changed; needs real-photo validation, see
+`nonograms/`): **P2** items 9-12 (perf) and **P3** items 14-15.
+Previously the P0/P1 notes were minimal verified fixes; all other §6 items remain
+recommendations and are now tracked as such above.
