@@ -156,6 +156,19 @@ std::tuple<bool, int, cv::Point> CrossLocsDetector::find_cell_side_length_cell_l
 }
 
 
+cv::Size CrossLocsDetector::get_cross_loc_search_roi(int const cell_side_length)
+{
+    // A cross is predicted from its immediate neighbor at exactly
+    // cell_side_length spacing. The cross kernel itself spans ~1.5 a cell side
+    // (see get_mask_cross), so a 1x box (radius cell_side_length/2) cannot
+    // contain the full cross pattern for filter2D, and 1x proved too tight on
+    // both synthetic and real grids. A 1.5x box (radius 3*cell_side_length/4)
+    // just covers the cross extent plus small per-step drift, and is ~56%
+    // smaller in area than the previous 2x box.
+    return cv::Size(3 * cell_side_length / 2, 3 * cell_side_length / 2);
+}
+
+
 std::map<cv::Point, cv::Point, PointCompare> CrossLocsDetector::get_cross_locs_map(
     cv::Mat const& image_thresholded,
     std::vector<cv::Point> const& indices_init,
@@ -426,7 +439,7 @@ cv::Mat CrossLocsDetector::get_cross_locs_main_mat(
         { cross_loc_init },
         INDICES_DELTAS,
         cross_loc_deltas,
-        cv::Size(2 * cell_side_length, 2 * cell_side_length),
+        get_cross_loc_search_roi(cell_side_length),
         mask_cross,
         mask_cross_perimeter,
         similarity_ratio_min);
@@ -503,7 +516,7 @@ cv::Mat CrossLocsDetector::get_cross_locs_top_mat(
         cross_locs_neighbors_init,
         indices_deltas,
         cross_loc_deltas,
-        cv::Size(2 * cell_side_length, 2 * cell_side_length),
+        get_cross_loc_search_roi(cell_side_length),
         mask_cross,
         mask_cross_perimeter,
         similarity_ratio_min);
@@ -580,7 +593,7 @@ cv::Mat CrossLocsDetector::get_cross_locs_left_mat(
         cross_locs_neighbors_init,
         indices_deltas,
         cross_loc_deltas,
-        cv::Size(2 * cell_side_length, 2 * cell_side_length),
+        get_cross_loc_search_roi(cell_side_length),
         mask_cross,
         mask_cross_perimeter,
         similarity_ratio_min);

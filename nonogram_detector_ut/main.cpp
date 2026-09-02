@@ -103,6 +103,10 @@ int main()
         std::cout << "case: 10x12 grid, cell 60, resize 600\n";
         if (!run_case(10, 12, 60, 600, 10, 12)) ++failures;
     }
+    {
+        std::cout << "case: 20x24 grid, cell 40, resize 800 (reduced search ROI regression)\n";
+        if (!run_case(20, 24, 40, 800, 20, 24)) ++failures;
+    }
 
     if (failures > 0)
     {

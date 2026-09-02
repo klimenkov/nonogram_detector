@@ -69,6 +69,9 @@ private:
         double const similarity_ratio_min);
 
 
+    static cv::Size get_cross_loc_search_roi(int cell_side_length);
+
+
     static cv::Rect get_bounding_rectangle(
         std::map<cv::Point, cv::Point, PointCompare> const& cross_locs_map);
 
