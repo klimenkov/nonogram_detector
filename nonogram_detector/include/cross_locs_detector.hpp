@@ -26,6 +26,11 @@ public:
 
     Detection detect(cv::Mat const& image);
 
+    static int estimate_cell_side_length(
+        cv::Mat const& image_thresholded,
+        cv::Rect const& roi,
+        int min, int max);
+
     static cv::Mat draw(
         cv::Mat const& image,
         cv::Mat const& cross_locs_mat,

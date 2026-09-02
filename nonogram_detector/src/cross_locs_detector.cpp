@@ -1,11 +1,13 @@
 #include <algorithm>
 #include <array>
 #include <cstdlib>
+
 #include <iterator>
 #include <numeric>
 #include <set>
 #include <tuple>
 #include <queue>
+#include <vector>
 
 #include "cross_locs_detector.hpp"
 #include "image_operations.hpp"
@@ -39,6 +41,72 @@ CrossLocsDetector::CrossLocsDetector(
 }
 
 
+int CrossLocsDetector::estimate_cell_side_length(
+    cv::Mat const& image_thresholded,
+    cv::Rect const& roi,
+    int const min, int const max)
+{
+    // Autocorrelation of a 1-D projection: the lag with the first strong
+    // positive peak (other than lag 0) is the grid period = cell side length.
+    auto period_of = [](std::vector<double> const& sig) -> int {
+        int const n = (int)sig.size();
+        if (n < 8) return 0;
+        double mean = 0;
+        for (double v : sig) mean += v;
+        mean /= n;
+        std::vector<double> z(n);
+        for (int i = 0; i < n; ++i) z[i] = sig[i] - mean;
+        double var = 0;
+        for (double v : z) var += v * v;
+        if (var <= 1e-9) return 0;
+        // Normalized autocorrelation per lag: correlation of the projection
+        // with itself shifted by <lag>. A periodic grid's projection has a
+        // strong peak at every multiple of the true period (cell side length);
+        // the FUNDAMENTAL period is therefore the first (smallest-lag) strong
+        // local maximum, not the argmax (which arbitrarily selects a harmonic).
+        int const half = n / 2;
+        std::vector<double> norm(half + 1, 0.0);
+        for (int lag = 1; lag <= half; ++lag) {
+            double acc = 0, var_ov = 0;
+            for (int i = 0; i + lag < n; ++i) {
+                acc += z[i] * z[i + lag];
+                var_ov += z[i] * z[i];
+            }
+            if (var_ov > 1e-12) norm[lag] = acc / var_ov;
+        }
+        // Smallest lag that is a strict/local strong peak.
+        for (int lag = 2; lag < half; ++lag) {
+            if (norm[lag] >= norm[lag - 1] &&
+                norm[lag] >= norm[lag + 1] &&
+                norm[lag] >= 0.5)
+            {
+                return lag;
+            }
+        }
+        return 0;
+    };
+
+    cv::Mat roi_image = image_thresholded(roi);
+    cv::Mat col_proj, row_proj;
+    cv::reduce(roi_image, col_proj, 1, cv::REDUCE_AVG, CV_64F);  // per-row mean
+    cv::reduce(roi_image, row_proj, 0, cv::REDUCE_AVG, CV_64F);  // per-col mean
+
+    std::vector<double> rp(row_proj.begin<double>(), row_proj.end<double>());
+    std::vector<double> cp(col_proj.begin<double>(), col_proj.end<double>());
+
+    int p_row = period_of(rp);
+    int p_col = period_of(cp);
+
+    int est = 0;
+    if (p_row && p_col) est = (p_row + p_col) / 2;
+    else if (p_row) est = p_row;
+    else if (p_col) est = p_col;
+
+    if (est < min || est > max) return 0;
+    return est;
+}
+
+
 Detection CrossLocsDetector::detect(cv::Mat const& image)
 {
     cv::Mat image_resized;
@@ -62,19 +130,31 @@ Detection CrossLocsDetector::detect(cv::Mat const& image)
 
     Detection detection;
 
-    bool cell_loc_found;
-    int cell_side_length;
-    cv::Point cell_loc;
-    {
-        cv::Point const image_center(image_thresholded.size() / 2);
-        auto const cell_loc_roi = get_roi(image_center, { 150, 150 });
+    bool cell_loc_found = false;
+    int cell_side_length = 0;
+    cv::Point cell_loc(0, 0);
+    cv::Point const image_center(image_thresholded.size() / 2);
+    auto const cell_loc_roi = get_roi(image_center, { 150, 150 });
 
+    int const est = estimate_cell_side_length(
+        image_thresholded, cell_loc_roi,
+        M_FIND_CELL_SIDE_LENGTH_MIN, M_FIND_CELL_SIDE_LENGTH_MAX);
+    if (est > 0)
+    {
+        cv::Mat mask_square;
+        int mask_square_perimeter;
+        std::tie(mask_square, mask_square_perimeter) = get_mask_square(est);
+        std::tie(cell_loc_found, cell_loc) = find_kernel_loc(
+            image_thresholded, cell_loc_roi, mask_square,
+            mask_square_perimeter, M_SIMILARITY_RATIO_MIN, cv::Point(0, 0));
+        if (cell_loc_found) cell_side_length = est;
+    }
+    if (!cell_loc_found)
+    {
         std::tie(cell_loc_found, cell_side_length, cell_loc) =
             find_cell_side_length_cell_loc(
-                image_thresholded,
-                cell_loc_roi,
-                M_FIND_CELL_SIDE_LENGTH_MIN,
-                M_FIND_CELL_SIDE_LENGTH_MAX,
+                image_thresholded, cell_loc_roi,
+                M_FIND_CELL_SIDE_LENGTH_MIN, M_FIND_CELL_SIDE_LENGTH_MAX,
                 M_SIMILARITY_RATIO_MIN);
     }
 

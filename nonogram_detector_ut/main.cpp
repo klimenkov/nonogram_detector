@@ -108,6 +108,24 @@ int main()
         if (!run_case(20, 24, 40, 800, 20, 24)) ++failures;
     }
 
+    {
+        std::cout << "case: estimate_cell_side_length on 1-D periodic row signal\n";
+        int const side = 37;              // odd, mirrors masks' odd-length requirement
+        int const N = 300;               // signal length
+        cv::Mat sig(1, N, CV_8U, cv::Scalar(0));
+        for (int x = 0; x < N; ++x)
+            if (x % side == 0) sig.at<uchar>(0, x) = 1;   // thin grid line
+
+        int est = ng::CrossLocsDetector::estimate_cell_side_length(
+            sig, cv::Rect(0, 0, N, 1), 5, 50);
+        if (est != side) {
+            std::cerr << "  [FAIL] estimate_cell_side_length=" << est << " expected " << side << "\n";
+            ++failures;
+        } else {
+            std::cout << "  [ok] estimated cell side " << est << "\n";
+        }
+    }
+
     if (failures > 0)
     {
         std::cerr << failures << " test(s) FAILED\n";
