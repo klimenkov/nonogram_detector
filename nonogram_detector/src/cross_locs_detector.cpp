@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <array>
+#include <cstdlib>
 #include <iterator>
 #include <numeric>
 #include <set>
@@ -52,12 +53,10 @@ std::tuple<bool, cv::Mat, cv::Mat, cv::Mat> CrossLocsDetector::detect(cv::Mat co
     auto const image_thresholded =
         threshold(image_gray, M_THRESHOLD_BLOCK_SIZE, M_THRESHOLD_C);
 
+    if (std::getenv("NG_DEBUG_IMSHOW"))
     {
         auto image_thresholded_copy = image_thresholded.clone();
         image_thresholded_copy *= 255;
-
-        //cv::resize(image_thresholded_copy, image_thresholded_copy, {}, 0.55, 0.55);
-
 
         cv::imshow("image_thresholded", image_thresholded_copy);
         cv::waitKey(0);
@@ -94,6 +93,11 @@ std::tuple<bool, cv::Mat, cv::Mat, cv::Mat> CrossLocsDetector::detect(cv::Mat co
         cell_side_length,
         M_SIMILARITY_RATIO_MIN);
 
+    if (cross_locs_main_mat.empty())
+    {
+        return std::make_tuple(false, cv::Mat(), cv::Mat(), cv::Mat());
+    }
+
     cv::Mat cross_locs_main_rescaled_mat = cross_locs_main_mat / scale;
 
     auto cross_locs_top_mat = get_cross_locs_top_mat(
@@ -102,7 +106,8 @@ std::tuple<bool, cv::Mat, cv::Mat, cv::Mat> CrossLocsDetector::detect(cv::Mat co
         cell_side_length,
         M_SIMILARITY_RATIO_MIN);
 
-    cv::Mat cross_locs_top_rescaled_mat = cross_locs_top_mat / scale;
+    cv::Mat cross_locs_top_rescaled_mat = cross_locs_top_mat.empty() ?
+        cv::Mat() : cross_locs_top_mat / scale;
 
     auto cross_locs_left_mat = get_cross_locs_left_mat(
         image_thresholded,
@@ -110,7 +115,8 @@ std::tuple<bool, cv::Mat, cv::Mat, cv::Mat> CrossLocsDetector::detect(cv::Mat co
         cell_side_length,
         M_SIMILARITY_RATIO_MIN);
 
-    cv::Mat cross_locs_left_rescaled_mat = cross_locs_left_mat / scale;
+    cv::Mat cross_locs_left_rescaled_mat = cross_locs_left_mat.empty() ?
+        cv::Mat() : cross_locs_left_mat / scale;
 
     return std::make_tuple(
         true,
