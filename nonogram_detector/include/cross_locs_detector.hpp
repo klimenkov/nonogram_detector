@@ -5,6 +5,7 @@
 #include <utility>
 #include <vector>
 
+#include "detection.hpp"
 #include "point_compare.hpp"
 
 #include <opencv2/opencv.hpp>
@@ -23,8 +24,7 @@ public:
         int const find_cell_side_length_max,
         double const similarity_ratio_min);
 
-    // First value means if something was detected
-    std::tuple<bool, cv::Mat, cv::Mat, cv::Mat> detect(cv::Mat const& image);
+    Detection detect(cv::Mat const& image);
 
     static cv::Mat draw(
         cv::Mat const& image,
@@ -78,7 +78,6 @@ private:
 
 
     static cv::Mat augment(
-        cv::Mat image_resized,
         cv::Mat const& cross_locs_mat,
         int const cell_side_length);
 
@@ -102,9 +101,6 @@ private:
         cv::Mat const& cross_locs_main_mat,
         int const cell_side_length,
         double const similarity_ratio_min);
-
-
-    static void print(cv::Mat const& cross_locs_mat);
 
 
 };

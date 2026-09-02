@@ -39,13 +39,11 @@ CrossLocsDetector::CrossLocsDetector(
 }
 
 
-std::tuple<bool, cv::Mat, cv::Mat, cv::Mat> CrossLocsDetector::detect(cv::Mat const& image)
+Detection CrossLocsDetector::detect(cv::Mat const& image)
 {
     cv::Mat image_resized;
     float scale;
     std::tie(image_resized, scale) = resize(image, M_RESIZE_WIDTH_HEIGHT_MAX);
-
-    //std::cout << "scale: " << scale << std::endl;
 
     cv::Mat image_gray;
     cv::cvtColor(image_resized, image_gray, cv::COLOR_BGR2GRAY);
@@ -61,6 +59,8 @@ std::tuple<bool, cv::Mat, cv::Mat, cv::Mat> CrossLocsDetector::detect(cv::Mat co
         cv::imshow("image_thresholded", image_thresholded_copy);
         cv::waitKey(0);
     }
+
+    Detection detection;
 
     bool cell_loc_found;
     int cell_side_length;
@@ -80,14 +80,10 @@ std::tuple<bool, cv::Mat, cv::Mat, cv::Mat> CrossLocsDetector::detect(cv::Mat co
 
     if (!cell_loc_found)
     {
-        return std::make_tuple(false, cv::Mat(), cv::Mat(), cv::Mat());
+        return detection;
     }
 
-    std::cout << (cell_loc_found ? "Cell is detected" : "Cell is not detected") << std::endl;
-    std::cout << "cell_side_length: " << cell_side_length << std::endl;
-    std::cout << "cell_loc: " << cell_loc << std::endl;
-
-    auto cross_locs_main_mat = get_cross_locs_main_mat(
+    cv::Mat cross_locs_main_mat = get_cross_locs_main_mat(
         image_thresholded,
         cell_loc,
         cell_side_length,
@@ -95,34 +91,35 @@ std::tuple<bool, cv::Mat, cv::Mat, cv::Mat> CrossLocsDetector::detect(cv::Mat co
 
     if (cross_locs_main_mat.empty())
     {
-        return std::make_tuple(false, cv::Mat(), cv::Mat(), cv::Mat());
+        return detection;
     }
 
-    cv::Mat cross_locs_main_rescaled_mat = cross_locs_main_mat / scale;
+    detection.found = true;
+    detection.main = cross_locs_main_mat / scale;
 
-    auto cross_locs_top_mat = get_cross_locs_top_mat(
+    auto const cross_locs_top_mat = get_cross_locs_top_mat(
         image_thresholded,
         cross_locs_main_mat,
         cell_side_length,
         M_SIMILARITY_RATIO_MIN);
 
-    cv::Mat cross_locs_top_rescaled_mat = cross_locs_top_mat.empty() ?
-        cv::Mat() : cross_locs_top_mat / scale;
+    if (!cross_locs_top_mat.empty())
+    {
+        detection.top = cross_locs_top_mat / scale;
+    }
 
-    auto cross_locs_left_mat = get_cross_locs_left_mat(
+    auto const cross_locs_left_mat = get_cross_locs_left_mat(
         image_thresholded,
         cross_locs_main_mat,
         cell_side_length,
         M_SIMILARITY_RATIO_MIN);
 
-    cv::Mat cross_locs_left_rescaled_mat = cross_locs_left_mat.empty() ?
-        cv::Mat() : cross_locs_left_mat / scale;
+    if (!cross_locs_left_mat.empty())
+    {
+        detection.left = cross_locs_left_mat / scale;
+    }
 
-    return std::make_tuple(
-        true,
-        cross_locs_main_rescaled_mat,
-        cross_locs_top_rescaled_mat,
-        cross_locs_left_rescaled_mat);
+    return detection;
 }
 
 
@@ -185,9 +182,6 @@ std::map<cv::Point, cv::Point, PointCompare> CrossLocsDetector::get_cross_locs_m
         cross_locs_init_map[indices_init[i]] = cross_locs_init[i];
     }
 
-    //cv::Mat image_thresholded_copy = image_thresholded.clone();
-    //image_thresholded_copy *= 255;
-
     std::map<cv::Point, cv::Point, PointCompare> cross_locs_map;
 
     while (!indices_queue.empty())
@@ -208,15 +202,6 @@ std::map<cv::Point, cv::Point, PointCompare> CrossLocsDetector::get_cross_locs_m
 
         if (cross_loc_found)
         {
-            //// Draw
-            //{
-            //    cv::circle(image_thresholded_copy, cross_loc, 5, 255, -1);
-            //    cv::circle(image_thresholded_copy, cross_loc, 3, 0, -1);
-
-            //    cv::imshow("image_thresholded_copy", image_thresholded_copy);
-            //    cv::waitKey(1);
-            //}
-
             cross_locs_map[indices] = cross_loc;
 
             for (int i = 0; i < indices_deltas.size(); ++i)
@@ -307,7 +292,6 @@ cv::Mat CrossLocsDetector::convert_to_mat(
 
 
 cv::Mat CrossLocsDetector::augment(
-    cv::Mat image_resized,
     cv::Mat const& cross_locs_mat,
     int const cell_side_length)
 {
@@ -376,7 +360,6 @@ cv::Mat CrossLocsDetector::augment(
                             });
 
                         auto const direction = indices - indices_neighbors[0];
-                        //auto const cross_loc_interpolated = neighbors[0] + (neighbors[0] - neighbors[1]);
                         auto const cross_loc_interpolated = neighbors[0] + cell_side_length * direction;
 
                         cross_locs_interpolated.push_back(cross_loc_interpolated);
@@ -408,8 +391,6 @@ cv::Mat CrossLocsDetector::augment(
 
             indices_empty_set.erase(indices);
         }
-
-        //draw(image_resized, cross_locs_mat_augmented);
     }
 
     return cross_locs_mat_augmented;
@@ -428,15 +409,10 @@ cv::Mat CrossLocsDetector::get_cross_locs_main_mat(
     auto const line_width = static_cast<int>(cell_side_length / 4);
     auto const line_width_half = line_width / 2;
 
-    std::cout << "line_width: " << line_width << std::endl;
-
     cv::Mat mask_cross;
     int mask_cross_perimeter;
     std::tie(mask_cross, mask_cross_perimeter) =
         get_mask_cross(mask_length_odd, line_width_half);
-
-    //std::cout << mask_cross << std::endl;
-    //std::cout << mask_cross_perimeter << std::endl;
 
     std::vector<cv::Point> const cross_loc_deltas = {
         cv::Point(0, -cell_side_length),
@@ -457,37 +433,26 @@ cv::Mat CrossLocsDetector::get_cross_locs_main_mat(
 
     auto cross_locs_main_mat = convert_to_mat(cross_locs_main_map);
 
+    if (cross_locs_main_mat.empty())
     {
-        //auto p = draw(image_thresholded, cross_locs_main_mat, 5, cv::Scalar(1));
-
-        //p *= 255;
-
-        //cv::imshow("m", p);
-        //cv::waitKey(1);
+        return cv::Mat();
     }
 
-    {
-        if (cross_locs_main_mat.empty())
-        {
-            return cv::Mat();
-        }
+    // Add extra lines on perimeter
+    auto const cross_locs_main_resized_mat_size = cross_locs_main_mat.size() + cv::Size(2, 2);
 
-        // Add extra lines on perimeter
-        auto const cross_locs_main_resized_mat_size = cross_locs_main_mat.size() + cv::Size(2, 2);
+    cv::Mat cross_locs_main_resized_mat(
+        cross_locs_main_resized_mat_size,
+        cross_locs_main_mat.type(),
+        cv::Scalar(-1, -1));
 
-        cv::Mat cross_locs_main_resized_mat(
-            cross_locs_main_resized_mat_size,
-            cross_locs_main_mat.type(),
-            cv::Scalar(-1, -1));
+    cv::Rect const roi(cv::Point(1, 1), cross_locs_main_mat.size());
+    cross_locs_main_mat.copyTo(cross_locs_main_resized_mat(roi));
 
-        cv::Rect const roi(cv::Point(1, 1), cross_locs_main_mat.size());
-        cross_locs_main_mat.copyTo(cross_locs_main_resized_mat(roi));
+    auto const cross_locs_main_resized_augmented_mat =
+        augment(cross_locs_main_resized_mat, cell_side_length);
 
-        auto const cross_locs_main_resized_augmented_mat =
-            augment(cv::Mat(), cross_locs_main_resized_mat, cell_side_length);
-
-        return cross_locs_main_resized_augmented_mat;
-    }
+    return cross_locs_main_resized_augmented_mat;
 }
 
 
@@ -500,8 +465,6 @@ cv::Mat CrossLocsDetector::get_cross_locs_top_mat(
     std::vector<cv::Point> indices_neighbors_init;
     std::vector<cv::Point> cross_locs_neighbors_init;
 
-    //cv::Point const cross_loc_delta_top(0, -cell_side_length);
-
     // The last is not a cross
     for (auto x = 0; x < cross_locs_main_mat.cols - 1; ++x)
     {
@@ -512,7 +475,6 @@ cv::Mat CrossLocsDetector::get_cross_locs_top_mat(
         {
             indices_neighbors_init.push_back(indices);
 
-            //auto const cross_loc_neighbor_init = cross_loc + cross_loc_delta_top;
             auto const cross_loc_neighbor_init = cross_loc;
             cross_locs_neighbors_init.push_back(cross_loc_neighbor_init);
         }
@@ -548,37 +510,26 @@ cv::Mat CrossLocsDetector::get_cross_locs_top_mat(
 
     auto const cross_locs_top_mat = convert_to_mat(cross_locs_top_map);
 
+    if (cross_locs_top_mat.empty())
     {
-        //auto p = draw(image_thresholded, cross_locs_top_mat, 5, cv::Scalar(1));
-
-        //p *= 255;
-
-        //cv::imshow("t", p);
-        //cv::waitKey(1);
+        return cv::Mat();
     }
 
-    {
-        if (cross_locs_top_mat.empty())
-        {
-            return cv::Mat();
-        }
+    // Add extra line to the top and extra column to the right
+    auto const cross_locs_top_resized_mat_size = cross_locs_top_mat.size() + cv::Size(1, 1);
 
-        // Add extra line to the top and extra column to the right
-        auto const cross_locs_top_resized_mat_size = cross_locs_top_mat.size() + cv::Size(1, 1);
+    cv::Mat cross_locs_top_resized_mat(
+        cross_locs_top_resized_mat_size,
+        cross_locs_top_mat.type(),
+        cv::Scalar(-1, -1));
 
-        cv::Mat cross_locs_top_resized_mat(
-            cross_locs_top_resized_mat_size,
-            cross_locs_top_mat.type(),
-            cv::Scalar(-1, -1));
+    cv::Rect const roi(cv::Point(0, 1), cross_locs_top_mat.size());
+    cross_locs_top_mat.copyTo(cross_locs_top_resized_mat(roi));
 
-        cv::Rect const roi(cv::Point(0, 1), cross_locs_top_mat.size());
-        cross_locs_top_mat.copyTo(cross_locs_top_resized_mat(roi));
+    auto cross_locs_top_resized_augmented_mat =
+        augment(cross_locs_top_resized_mat, cell_side_length);
 
-        auto cross_locs_top_resized_augmented_mat =
-            augment(cv::Mat(), cross_locs_top_resized_mat, cell_side_length);
-
-        return cross_locs_top_resized_augmented_mat;
-    }
+    return cross_locs_top_resized_augmented_mat;
 }
 
 
@@ -590,8 +541,6 @@ cv::Mat CrossLocsDetector::get_cross_locs_left_mat(
 {
     std::vector<cv::Point> indices_neighbors_init;
     std::vector<cv::Point> cross_locs_neighbors_init;
-
-    //cv::Point cross_loc_delta_left(-cell_side_length, 0);
 
     // The last is not a cross
     for (auto y = 0; y < cross_locs_main_mat.rows - 1; ++y)
@@ -638,57 +587,26 @@ cv::Mat CrossLocsDetector::get_cross_locs_left_mat(
 
     auto cross_locs_left_mat = convert_to_mat(cross_locs_left_map);
 
+    if (cross_locs_left_mat.empty())
     {
-        //auto d = draw(image_thresholded, cross_locs_left_mat, 5, cv::Scalar(1));
-
-        //d *= 255;
-
-        //cv::imshow("l", d);
-        //cv::waitKey(1);
+        return cv::Mat();
     }
 
-    {
-        if (cross_locs_left_mat.empty())
-        {
-            return cv::Mat();
-        }
+    // Add extra line to the bottom and extra column to the left
+    auto const cross_locs_left_resized_mat_size = cross_locs_left_mat.size() + cv::Size(1, 1);
 
-        // Add extra line to the bottom and extra column to the left
-        auto const cross_locs_left_resized_mat_size = cross_locs_left_mat.size() + cv::Size(1, 1);
+    cv::Mat cross_locs_left_resized_mat(
+        cross_locs_left_resized_mat_size,
+        cross_locs_left_mat.type(),
+        cv::Scalar(-1, -1));
 
-        cv::Mat cross_locs_left_resized_mat(
-            cross_locs_left_resized_mat_size,
-            cross_locs_left_mat.type(),
-            cv::Scalar(-1, -1));
+    cv::Rect const roi(cv::Point(1, 0), cross_locs_left_mat.size());
+    cross_locs_left_mat.copyTo(cross_locs_left_resized_mat(roi));
 
-        cv::Rect const roi(cv::Point(1, 0), cross_locs_left_mat.size());
-        cross_locs_left_mat.copyTo(cross_locs_left_resized_mat(roi));
+    auto cross_locs_left_resized_augmented_mat =
+        augment(cross_locs_left_resized_mat, cell_side_length);
 
-        auto cross_locs_left_resized_augmented_mat =
-            augment(cv::Mat(), cross_locs_left_resized_mat, cell_side_length);
-
-        return cross_locs_left_resized_augmented_mat;
-    }
-}
-
-
-void CrossLocsDetector::print(cv::Mat const& cross_locs_mat)
-{
-    for (int y = 0; y < cross_locs_mat.rows; ++y)
-    {
-        for (int x = 0; x < cross_locs_mat.cols; ++x)
-        {
-            if (cross_locs_mat.at<cv::Point>(y, x) == cv::Point(-1, -1))
-            {
-                std::cout << 0;
-            }
-            else
-            {
-                std::cout << 1;
-            }
-        }
-        std::cout << std::endl;
-    }
+    return cross_locs_left_resized_augmented_mat;
 }
 
 

@@ -1,4 +1,5 @@
 set(HEADERS
+	"include/detection.hpp"
 	"include/image_operations.hpp"
 	"include/cross_locs_detector.hpp"
 	"include/masks.hpp"
@@ -13,5 +14,12 @@ set(SOURCES
 add_library(nonogram_detector ${HEADERS} ${SOURCES})
 target_include_directories(nonogram_detector PUBLIC include)
 
-find_package(OpenCV REQUIRED)
-target_link_libraries(nonogram_detector ${OpenCV_LIBS})
+set_target_properties(nonogram_detector PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+
+set(OPENCV_COMPONENTS core imgproc highgui imgcodecs)
+find_package(OpenCV REQUIRED COMPONENTS ${OPENCV_COMPONENTS})
+
+target_include_directories(nonogram_detector PUBLIC ${OpenCV_INCLUDE_DIRS})
+foreach(module ${OPENCV_COMPONENTS})
+	target_link_libraries(nonogram_detector PUBLIC opencv_${module})
+endforeach()

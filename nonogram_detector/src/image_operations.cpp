@@ -121,8 +121,6 @@ std::pair<bool, cv::Point> find_kernel_loc(
 
 std::vector<std::vector<cv::Mat>> get_cell_warped_images_vector(cv::Mat const& image, cv::Mat const& cross_locs)
 {
-    std::cout << cross_locs.size() << std::endl;
-
     auto const cell_warped_side_length = 20;
     cv::Size const cell_warped_size(cell_warped_side_length, cell_warped_side_length);
 

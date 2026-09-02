@@ -1,5 +1,7 @@
 #include <chrono>
+#include <cstdlib>
 #include <iostream>
+#include <string>
 
 #include <opencv2/opencv.hpp>
 
@@ -97,17 +99,17 @@ public:
             50,
             0.9);
 
-        bool cell_loc_found;
-        cv::Mat cross_locs_main;
-        cv::Mat cross_locs_top;
-        cv::Mat cross_locs_left;
-        std::tie(cell_loc_found, cross_locs_main, cross_locs_top, cross_locs_left) =
-            cross_loc_detector.detect(m_image);
+        auto const detection = cross_loc_detector.detect(m_image);
+
+        if (!detection.found)
+        {
+            return;
+        }
 
         int const radius = 2;
-        auto image_draw = ng::CrossLocsDetector::draw(m_image, cross_locs_main, radius, cv::Scalar(255, 0, 0));
-        image_draw = ng::CrossLocsDetector::draw(image_draw, cross_locs_top, radius, cv::Scalar(0, 255, 0));
-        image_draw = ng::CrossLocsDetector::draw(image_draw, cross_locs_left, radius, cv::Scalar(0, 0, 255));
+        auto image_draw = ng::CrossLocsDetector::draw(m_image, detection.main, radius, cv::Scalar(255, 0, 0));
+        image_draw = ng::CrossLocsDetector::draw(image_draw, detection.top, radius, cv::Scalar(0, 255, 0));
+        image_draw = ng::CrossLocsDetector::draw(image_draw, detection.left, radius, cv::Scalar(0, 0, 255));
 
         cv::imshow(m_window_name, image_draw);
     }
@@ -124,12 +126,22 @@ private:
 };
 
 
-int main()
+int main(int argc, char** argv)
 {
-    std::string const image_path =
-        R"(C:\Users\klimenkov\Desktop\nonograms\nonogram.jpg)";
+    if (argc < 2)
+    {
+        std::cerr << "usage: " << argv[0] << " <image>\n";
+        return 2;
+    }
+
+    std::string const image_path = argv[1];
 
     auto image = cv::imread(image_path);
+    if (image.empty())
+    {
+        std::cerr << "Image was not read: " << image_path << "\n";
+        return 1;
+    }
 
     WindowTrackbarDetector window_trackbar_detector("My window", image);
     window_trackbar_detector.show();
