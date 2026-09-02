@@ -16,7 +16,7 @@ target_include_directories(nonogram_detector PUBLIC include)
 
 set_target_properties(nonogram_detector PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
 
-set(OPENCV_COMPONENTS core imgproc highgui imgcodecs)
+set(OPENCV_COMPONENTS core imgproc imgcodecs)
 find_package(OpenCV REQUIRED COMPONENTS ${OPENCV_COMPONENTS})
 
 target_include_directories(nonogram_detector PUBLIC ${OpenCV_INCLUDE_DIRS})

@@ -372,3 +372,17 @@ dominant cost and would be the target of any further P2 work (with a
 perspective-aware grid model).
 
 **P3-14/15** (Grid/Detection abstraction; cell decoding) remain future work.
+
+### Headless hardening (2026-09-02)
+
+The codebase is now fully headless — no window is opened and nothing waits for
+user input:
+
+- The blocking `imshow`/`waitKey(0)` debug block in `detect()` (P0-1) was
+  **removed** entirely, not merely gated; `detect()` never renders.
+- `nonogram_detector_application` no longer shows a window; it prints the
+  found-flag and saves the overlay to `grid.png` under `NG_SAVE_OUTPUT`.
+- The interactive `nonogram_detector_test` trackbar tool was **deleted** (its
+  only purpose was manual parameter tuning); the top-level `add_subdirectory`
+  and the library's `highgui` OpenCV dependency were removed.
+- Unit tests (`nonogram_detector_ut`) still pass headless; output is text-only.

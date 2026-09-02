@@ -1,6 +1,5 @@
 #include <algorithm>
 #include <array>
-#include <cstdlib>
 
 #include <iterator>
 #include <numeric>
@@ -118,15 +117,6 @@ Detection CrossLocsDetector::detect(cv::Mat const& image)
 
     auto const image_thresholded =
         threshold(image_gray, M_THRESHOLD_BLOCK_SIZE, M_THRESHOLD_C);
-
-    if (std::getenv("NG_DEBUG_IMSHOW"))
-    {
-        auto image_thresholded_copy = image_thresholded.clone();
-        image_thresholded_copy *= 255;
-
-        cv::imshow("image_thresholded", image_thresholded_copy);
-        cv::waitKey(0);
-    }
 
     Detection detection;
 

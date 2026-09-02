@@ -45,20 +45,10 @@ int main(int argc, char** argv)
     image_draw =
         ng::CrossLocsDetector::draw(image_draw, detection.left, radius, cv::Scalar(0, 0, 255));
 
-    // Show the result unless running headless.
-    if (std::getenv("DISPLAY"))
+    // Save the overlay for headless inspection when requested.
+    if (std::getenv("NG_SAVE_OUTPUT"))
     {
-        cv::resize(image_draw, image_draw, {}, 0.25, 0.25);
-        cv::imshow("image_draw", image_draw);
-        cv::waitKey();
-    }
-    else
-    {
-        // Optionally save the overlay for headless inspection.
-        if (std::getenv("NG_SAVE_OUTPUT"))
-        {
-            cv::imwrite("grid.png", image_draw);
-        }
+        cv::imwrite("grid.png", image_draw);
     }
 
     return 0;

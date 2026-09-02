@@ -23,13 +23,15 @@ CMake with three subprojects:
 | Subproject | Type | Purpose |
 |---|---|---|
 | `nonogram_detector` | static library | Core algorithm (`ng` namespace) |
-| `nonogram_detector_application` | executable | Driver program (single hardcoded image) |
-| `nonogram_detector_test` | executable | Interactive trackbar experiment tool |
+| `nonogram_detector_application` | executable | Driver program (argument-driven, headless) |
+| `nonogram_detector_ut` | executable | Automated synthetic-grid unit tests |
 
 - `cmake_minimum_required(VERSION 2.8)` and `.gitignore` entries (`.vs`,
   `CMakeSettings.json`) indicate a Windows/Visual Studio origin.
-- The library links OpenCV (`find_package(OpenCV REQUIRED)`) and exposes its
-  `include/` dir publicly.
+- The library links OpenCV (`find_package(OpenCV REQUIRED)`,
+  `core`/`imgproc`/`imgcodecs`) and exposes its `include/` dir publicly.
+- There is no interactive/display component: the library and application are
+  headless and never open a window or wait for user input.
 
 ## 3. Module layout & dependencies
 
@@ -168,29 +170,23 @@ The main region is grown first and seeds the clue regions' initial positions.
 
 ## 6. Application driver (`nonogram_detector_application/main.cpp`)
 
-A procedural driver:
+A procedural, headless driver:
 
-1. Reads a hardcoded image path (`C:\Users\klimenkov\Desktop\nonograms\nonogram.jpg`).
-2. Constructs `ng::CrossLocsDetector(1200, 15, 10.0, 5, 50, 0.9)`.
-3. Runs `detect`, draws the main/top/left results as blue/green/red circles.
-4. Resizes the overlay for display and shows it (`imshow`/`waitKey`).
-5. Also demonstrates `get_cell_warped_images_vector` on `cross_locs_left`
-   (perspective warp each clue cell to 20×20).
+1. Reads the image path from the first argument (`argv[1]`); optional second
+   argument sets the resize max (default 1200).
+2. Constructs `ng::CrossLocsDetector(resize_max, 15, 10.0, 5, 50, 0.9)`.
+3. Runs `detect`, prints the found-flag, and draws the main/top/left results as
+   blue/green/red circles.
+4. When the `NG_SAVE_OUTPUT` environment variable is set, saves the overlay to
+   `grid.png`. No window is ever opened; it never waits for user input.
 
-A commented-out `save_images` / `get_cell_rois` path exists for exporting cell
-images.
+## 7. Experiment driver (removed)
 
-## 7. Experiment driver (`nonogram_detector_test/main.cpp`)
-
-`WindowTrackbarDetector` wraps the detector behind OpenCV trackbars so the
-preprocessing parameters can be tuned live:
-
-- Resize max (500–1500), threshold block size (3–203), and the adaptive `C`
-  offset (-50–50).
-
-Moving a trackbar reconstructs the detector and re-runs `detect`, redrawing the
-overlay. This is the primary parameter-tuning playground and is *not* an
-automated unit test suite.
+An earlier interactive trackbar experiment tool (`nonogram_detector_test`, with
+`WindowTrackbarDetector`) was removed from the build because it existed purely
+for interactive parameter tuning via `imshow`/`waitKey`/`createTrackbar` and was
+not an automated test. Parameter behavior is now validated by the synthetic
+`nonogram_detector_ut` suite.
 
 ## 8. Dead / legacy code
 
@@ -205,10 +201,9 @@ automated unit test suite.
 
 ## 9. Design observations & risks
 
-- **Active debug instrumentation** — `detect` contains a live
-  `imshow`/`waitKey(0)` that blocks until a key is pressed, plus several
-  `std::cout` diagnostics. These must be gated (e.g. behind a debug flag) before
-  the detector can run unattended.
+- **Headless** — `detect` no longer opens any window or waits for user input;
+  the previously blocking `imshow`/`waitKey(0)` block was removed. The detector
+  runs unattended and is testable in a harness.
 - **Hardcoded environment** — application/test use absolute Windows paths and no
   CLI/argument input; the top-level `cmake_minimum_required` is 2.8 (very old).
 - **Tuple return instead of a result type** — `detect` returns a 4-tuple; a small
