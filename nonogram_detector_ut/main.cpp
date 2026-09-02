@@ -8,6 +8,10 @@
 #include "cross_locs_detector.hpp"
 
 
+// Defined in digit_recognizer_test.cpp
+int run_digit_recognizer_tests();
+
+
 namespace
 {
 
@@ -125,6 +129,8 @@ int main()
             std::cout << "  [ok] estimated cell side " << est << "\n";
         }
     }
+
+    failures += run_digit_recognizer_tests();
 
     if (failures > 0)
     {

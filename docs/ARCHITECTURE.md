@@ -42,19 +42,44 @@ nonogram_detector/
     masks.hpp                 Kernel-template generators (square, cross)
     point_compare.hpp         cv::Point strict-weak-ordering comparator
     cross_locs_detector.hpp   Main algorithm class (CrossLocsDetector)
+    detection.hpp             ng::Detection result struct (found/main/top/left)
+    digit_recognizer.hpp      ONNX-digit classifier (cv::dnn) for clue cells
+    decode.hpp                Decodes clue strips into per-cell digit grids
     grid_detector.hpp         LEGACY duplicate of cross_locs_detector (see §8)
   src/
     image_operations.cpp
     masks.cpp
     point_compare.cpp
     cross_locs_detector.cpp
+    digit_recognizer.cpp
+    decode.cpp
     grid_detector.cpp         LEGACY, not compiled
+  models/
+    digits.onnx               Bundled MNIST-digit CNN (ONNX Model Zoo)
 nonogram_detector_application/main.cpp
-nonogram_detector_test/main.cpp
 ```
 
-Dependency direction is one-way: `application`/`test` link the library; library
-modules depend only on OpenCV and each other.
+Dependency direction is one-way: `application` links the library; library
+modules depend only on OpenCV (core/imgproc/imgcodecs/dnn) and each other.
+
+### 3.0 `DigitRecognizer` & `decode`
+
+`ng::DigitRecognizer` (`digit_recognizer.hpp`) loads the bundled
+`models/digits.onnx` (a ~26 KB MNIST convolutional network) through
+`cv::dnn::readNetFromONNX` and classifies the digit inside a warped clue cell:
+
+- `prepare_input` geometrically normalizes a cell: grayscale, Otsu plus-polarity
+  inversion, an inward crop past the surrounding grid frame, crop to the largest
+  foreground contour, aspect-preserving rescale onto a 28×28 white-on-black
+  canvas, then MNIST whitening `(x/255 − 0.1307)/0.3081` producing a
+  `1×1×28×28` blob.
+- `recognize` runs the forward pass and returns the argmax digit (the softmax
+  probability is exposed via `recognize_ex` for confidence gating).
+- `decode.hpp::decode_clues` reuses `get_cell_warped_images_vector` on the
+  `top` and `left` regions of a `Detection` and fills an `ng::ClueGrid`
+  (row-major `vector<vector<int>>`, `-1` for empty cells).
+
+
 
 ### 3.1 `point_compare`
 

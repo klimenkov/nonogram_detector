@@ -371,7 +371,9 @@ environment, median of 5):
 dominant cost and would be the target of any further P2 work (with a
 perspective-aware grid model).
 
-**P3-14/15** (Grid/Detection abstraction; cell decoding) remain future work.
+**P3-14/15** (full `Grid`/`Detection` abstraction; a formal cell-decoding result
+model) remain future work; an initial clue-cell digit decoder is now in place
+(see "Digit recognition in clue cells" below).
 
 ### Headless hardening (2026-09-02)
 
@@ -386,3 +388,30 @@ user input:
   only purpose was manual parameter tuning); the top-level `add_subdirectory`
   and the library's `highgui` OpenCV dependency were removed.
 - Unit tests (`nonogram_detector_ut`) still pass headless; output is text-only.
+
+### Digit recognition in clue cells (P3-14 partial, 2026-09-02)
+
+The clue strips of a detected nonogram are now decoded into digits:
+
+- Added `ng::DigitRecognizer` (`digit_recognizer.{hpp,cpp}`) wrapping
+  `cv::dnn::Net` over a bundled MNIST CNN (`nonogram_detector/models/digits.onnx`,
+  ~26 KB, ONNX Model Zoo `mnist-8`, output layer `Plus214_Output_0`). The library
+  now links OpenCV `dnn` in addition to `core imgproc imgcodecs`.
+- Cell normalization (`prepare_input`): grayscale, Otsu polarity inversion,
+  inward crop past the grid-frame ring, crop to the largest foreground contour,
+  aspect-preserving rescale to a 28×28 white-on-black canvas, MNIST whitening
+  `(x/255 − 0.1307)/0.3081` → `1×1×28×28` blob.
+- Added `ng::decode_clues` (`decode.hpp/cpp`) reusing
+  `get_cell_warped_images_vector` on the `top`/`left` regions into an
+  `ng::ClueGrid` (row-major `vector<vector<int>>`, `-1` = empty cell). The
+  application prints `top clues:` / `left clues:` headlessly.
+- `nonogram_detector_ut` gained `digit_recognizer_test.cpp`: all 0–9 classify
+  correctly on synthetic cells, empty cells read `-1`, and the input blob shape
+  is verified. Existing detection cases still pass.
+- Real-photo validation (headless): `20180811_114632.jpg`, `20191102_004052.jpg`,
+  `20200511_145923.jpg` all decode to structurally plausible nonogram clue
+  sequences (clue lengths increasing toward the main grid). The generic MNIST
+  model is over-confident on some noisy/bleed cells (rare spurious digits), which
+  is a known limitation of a generic digit model on real photos; a print-font
+  trained/tuned model would improve this further.
+

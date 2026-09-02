@@ -3,3 +3,12 @@ set(SOURCES
 
 add_executable(nonogram_detector_application ${SOURCES})
 target_link_libraries(nonogram_detector_application nonogram_detector)
+
+# Ensure the bundled digit-recognition model sits next to the executable so the
+# default model-path resolution works regardless of the working directory.
+add_custom_command(TARGET nonogram_detector_application POST_BUILD
+	COMMAND ${CMAKE_COMMAND} -E make_directory
+		"$<TARGET_FILE_DIR:nonogram_detector_application>/models"
+	COMMAND ${CMAKE_COMMAND} -E copy_if_different
+		"${CMAKE_CURRENT_SOURCE_DIR}/../nonogram_detector/models/digits.onnx"
+		"$<TARGET_FILE_DIR:nonogram_detector_application>/models/digits.onnx")
