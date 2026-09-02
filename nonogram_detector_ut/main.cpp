@@ -109,6 +109,11 @@ int main()
     }
 
     {
+        std::cout << "case: 30x30 grid, cell 40, resize 1200 (analytic interior extrapolation)\n";
+        if (!run_case(30, 30, 40, 1200, 30, 30)) ++failures;
+    }
+
+    {
         std::cout << "case: estimate_cell_side_length on 1-D periodic row signal\n";
         int const side = 37;              // odd, mirrors masks' odd-length requirement
         int const N = 300;               // signal length
