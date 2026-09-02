@@ -249,88 +249,6 @@ cv::Size CrossLocsDetector::get_cross_loc_search_roi(int const cell_side_length)
 }
 
 
-bool CrossLocsDetector::extrapolate_grid_interior(
-    cv::Mat const& image_thresholded,
-    std::map<cv::Point, cv::Point, PointCompare>& cross_locs_map,
-    int const cell_side_length,
-    cv::Mat const& mask_cross,
-    int const mask_cross_perimeter,
-    double const similarity_ratio_min)
-{
-    if (cross_locs_map.empty()) return false;
-
-    // The BFS is seeded at the located seed cross, so grid indices span both
-    // negative and positive directions around the seed (index (0,0)). The band
-    // through the seed (row y==0 and column x==0) forms the two anchor axes;
-    // every other node is extrapolated from a bilinear rectilinear model built
-    // on those anchors.
-    int max_x = 0, max_y = 0, min_x = 0, min_y = 0;
-    for (auto const& kv : cross_locs_map)
-    {
-        max_x = std::max(max_x, kv.first.x);
-        max_y = std::max(max_y, kv.first.y);
-        min_x = std::min(min_x, kv.first.x);
-        min_y = std::min(min_y, kv.first.y);
-    }
-    int const nx = max_x - min_x + 1;
-    int const ny = max_y - min_y + 1;
-    if (nx < 3 || ny < 3) return false;   // too small to extrapolate
-
-    // row_anchors[x] is the located cross at grid index (x,0); col_anchors[y]
-    // at (0,y). Index by (x - min_x) / (y - min_y).
-    std::vector<cv::Point> row_anchors(nx, cv::Point(-1, -1));
-    std::vector<cv::Point> col_anchors(ny, cv::Point(-1, -1));
-    for (auto const& kv : cross_locs_map)
-    {
-        if (kv.first.y == 0) row_anchors[kv.first.x - min_x] = kv.second;
-        if (kv.first.x == 0) col_anchors[kv.first.y - min_y] = kv.second;
-    }
-    for (int x = 0; x < nx; ++x) if (row_anchors[x] == cv::Point(-1, -1)) return false;
-    for (int y = 0; y < ny; ++y) if (col_anchors[y] == cv::Point(-1, -1)) return false;
-
-    cv::Point const origin = row_anchors[-min_x];
-    auto interp = [&](int x, int y) {
-        return row_anchors[x - min_x] + (col_anchors[y - min_y] - origin);
-    };
-
-    // Verify a sparse subset of non-anchor nodes; cap attempts.
-    std::vector<std::pair<int, int>> todo;
-    int const step = std::max(1, std::min(nx, ny) / 8);
-    for (int y = min_y; y <= max_y; y += step)
-        for (int x = min_x; x <= max_x; x += step)
-            if (x != 0 && y != 0)
-                todo.emplace_back(x, y);
-
-    // Strict tolerance: the rectilinear model must already match the located
-    // grid within a small fraction of a cell, otherwise the grid is not
-    // uniform (e.g. perspective distortion) and any analytic interior fill
-    // would be inaccurate. On such grids we fall back to the full BFS.
-    double const tol = 0.08 * cell_side_length;
-    for (auto const& xy : todo)
-    {
-        cv::Point const pred = interp(xy.first, xy.second);
-        bool ok; cv::Point found;
-        std::tie(ok, found) = find_kernel_loc(
-            image_thresholded,
-            get_roi(pred, get_cross_loc_search_roi(cell_side_length)),
-            mask_cross,
-            mask_cross_perimeter,
-            similarity_ratio_min);
-        if (!ok) return false;
-        double const dx = std::abs((double)found.x - pred.x);
-        double const dy = std::abs((double)found.y - pred.y);
-        if (dx > tol || dy > tol) return false;
-    }
-
-    // Uniform enough: fill every non-anchor node analytically.
-    for (int y = min_y; y <= max_y; ++y)
-        for (int x = min_x; x <= max_x; ++x)
-            if (x != 0 && y != 0)
-                cross_locs_map[cv::Point(x, y)] = interp(x, y);
-    return true;
-}
-
-
 std::map<cv::Point, cv::Point, PointCompare> CrossLocsDetector::get_cross_locs_map(
     cv::Mat const& image_thresholded,
     std::vector<cv::Point> const& indices_init,
@@ -595,7 +513,7 @@ cv::Mat CrossLocsDetector::get_cross_locs_main_mat(
         cv::Point(0, cell_side_length),
         cv::Point(-cell_side_length, 0) };
 
-    auto cross_locs_main_map = get_cross_locs_map(
+    auto const cross_locs_main_map = get_cross_locs_map(
         image_thresholded,
         { cv::Point(0, 0) },
         { cross_loc_init },
@@ -605,14 +523,6 @@ cv::Mat CrossLocsDetector::get_cross_locs_main_mat(
         mask_cross,
         mask_cross_perimeter,
         similarity_ratio_min);
-
-    // Attempt the analytic interior fast path. On success the interior nodes
-    // (everything off the seed row/column) are filled analytically. On failure
-    // the map is left as the full BFS result, so behavior is identical to the
-    // pre-optimization path.
-    extrapolate_grid_interior(
-        image_thresholded, cross_locs_main_map, cell_side_length,
-        mask_cross, mask_cross_perimeter, similarity_ratio_min);
 
     auto cross_locs_main_mat = convert_to_mat(cross_locs_main_map);
 

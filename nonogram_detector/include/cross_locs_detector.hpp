@@ -77,18 +77,6 @@ private:
     static cv::Size get_cross_loc_search_roi(int cell_side_length);
 
 
-    // Fast path: analytically extrapolate the interior of a near-uniform grid
-    // from its located first row and first column, verifying a sparse subset.
-    // Returns false if the lattice is not uniform (caller retains the full BFS).
-    static bool extrapolate_grid_interior(
-        cv::Mat const& image_thresholded,
-        std::map<cv::Point, cv::Point, PointCompare>& cross_locs_map,
-        int const cell_side_length,
-        cv::Mat const& mask_cross,
-        int const mask_cross_perimeter,
-        double const similarity_ratio_min);
-
-
     static cv::Rect get_bounding_rectangle(
         std::map<cv::Point, cv::Point, PointCompare> const& cross_locs_map);
 
