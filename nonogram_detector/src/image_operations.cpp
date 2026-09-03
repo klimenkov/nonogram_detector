@@ -96,7 +96,7 @@ cv::Point2f refine_peak_loc(cv::Mat const& image_filtered, cv::Point const& peak
 }
 
 
-std::pair<bool, cv::Point> find_kernel_loc(
+std::pair<bool, cv::Point2f> find_kernel_loc(
     cv::Mat const& image_thresholded,
     cv::Mat const& kernel,
     double const max,
@@ -121,9 +121,12 @@ std::pair<bool, cv::Point> find_kernel_loc(
     cv::Point peak_max_loc;
     cv::minMaxLoc(image_filtered, nullptr, &peak_max, nullptr, &peak_max_loc);
 
-    return peak_max > similarity_ratio_min ?
-        std::make_pair(true, peak_max_loc) :
-        std::make_pair(false, cv::Point(-1, -1));
+    if (peak_max > similarity_ratio_min)
+    {
+        return std::make_pair(true, refine_peak_loc(image_filtered, peak_max_loc));
+    }
+
+    return std::make_pair(false, cv::Point2f(-1.0f, -1.0f));
 }
 
 
@@ -133,7 +136,7 @@ bool is_inside(cv::Rect const& rect, cv::Rect const& sub_rect)
 }
 
 
-std::pair<bool, cv::Point> find_kernel_loc(
+std::pair<bool, cv::Point2f> find_kernel_loc(
     cv::Mat const& image_thresholded,
     cv::Rect const& roi,
     cv::Mat const& kernel,
@@ -144,11 +147,11 @@ std::pair<bool, cv::Point> find_kernel_loc(
     cv::Rect const image_thresholded_roi(cv::Point(0, 0), image_thresholded.size());
     if (!is_inside(image_thresholded_roi, roi))
     {
-        return std::make_pair(false, cv::Point(-1, -1));
+        return std::make_pair(false, cv::Point2f(-1.0f, -1.0f));
     }
 
     bool kernel_loc_found;
-    cv::Point kernel_loc;
+    cv::Point2f kernel_loc;
     std::tie(kernel_loc_found, kernel_loc) = find_kernel_loc(
         image_thresholded(roi),
         kernel,
@@ -157,8 +160,8 @@ std::pair<bool, cv::Point> find_kernel_loc(
         anchor);
 
     return kernel_loc_found ?
-        std::make_pair(true, kernel_loc + roi.tl()) :
-        std::make_pair(false, cv::Point(-1, -1));
+        std::make_pair(true, kernel_loc + cv::Point2f(roi.tl())) :
+        std::make_pair(false, cv::Point2f(-1.0f, -1.0f));
 }
 
 
@@ -186,10 +189,10 @@ std::vector<std::vector<cv::Mat>> get_cell_warped_images_vector(cv::Mat const& i
             cv::Point const br(br_x, br_y);
             cv::Point const bl(tl_x, br_y);
 
-            cv::Point2f const cell_tl = cross_locs.at<cv::Point>(tl);
-            cv::Point2f const cell_tr = cross_locs.at<cv::Point>(tr);
-            cv::Point2f const cell_br = cross_locs.at<cv::Point>(br);
-            cv::Point2f const cell_bl = cross_locs.at<cv::Point>(bl);
+            cv::Point2f const cell_tl = cross_locs.at<cv::Point2f>(tl);
+            cv::Point2f const cell_tr = cross_locs.at<cv::Point2f>(tr);
+            cv::Point2f const cell_br = cross_locs.at<cv::Point2f>(br);
+            cv::Point2f const cell_bl = cross_locs.at<cv::Point2f>(bl);
 
             std::vector<cv::Point2f> const cell_points = {
                 cell_tl, cell_tr, cell_br, cell_bl };

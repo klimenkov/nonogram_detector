@@ -36,8 +36,9 @@ cv::Rect get_roi(cv::Point const& center, cv::Size const& roi_size);
 cv::Point2f refine_peak_loc(cv::Mat const& image_filtered, cv::Point const& peak);
 
 
-// The boolean flag in the return value shows if the search was successful
-std::pair<bool, cv::Point> find_kernel_loc(
+// The boolean flag in the return value shows if the search was successful.
+// The returned location is subpixel (cv::Point2f).
+std::pair<bool, cv::Point2f> find_kernel_loc(
     cv::Mat const& image_thresholded,
     cv::Mat const& kernel,
     double const max,
@@ -48,7 +49,7 @@ std::pair<bool, cv::Point> find_kernel_loc(
 bool is_inside(cv::Rect const& rect, cv::Rect const& sub_rect);
 
 
-std::pair<bool, cv::Point> find_kernel_loc(
+std::pair<bool, cv::Point2f> find_kernel_loc(
     cv::Mat const& image,
     cv::Rect const& roi,
     cv::Mat const& kernel,

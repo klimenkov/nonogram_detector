@@ -122,7 +122,7 @@ Detection CrossLocsDetector::detect(cv::Mat const& image)
 
     bool cell_loc_found = false;
     int cell_side_length = 0;
-    cv::Point cell_loc(0, 0);
+    cv::Point2f cell_loc(0.0f, 0.0f);
     cv::Point const image_center(image_thresholded.size() / 2);
     auto const cell_loc_roi = get_roi(image_center, { 150, 150 });
 
@@ -165,7 +165,7 @@ Detection CrossLocsDetector::detect(cv::Mat const& image)
     }
 
     detection.found = true;
-    detection.main = cross_locs_main_mat / scale;
+    detection.main = scale_cross_locs_mat(cross_locs_main_mat, scale);
 
     auto const cross_locs_top_mat = get_cross_locs_top_mat(
         image_thresholded,
@@ -175,7 +175,7 @@ Detection CrossLocsDetector::detect(cv::Mat const& image)
 
     if (!cross_locs_top_mat.empty())
     {
-        detection.top = cross_locs_top_mat / scale;
+        detection.top = scale_cross_locs_mat(cross_locs_top_mat, scale);
     }
 
     auto const cross_locs_left_mat = get_cross_locs_left_mat(
@@ -186,14 +186,14 @@ Detection CrossLocsDetector::detect(cv::Mat const& image)
 
     if (!cross_locs_left_mat.empty())
     {
-        detection.left = cross_locs_left_mat / scale;
+        detection.left = scale_cross_locs_mat(cross_locs_left_mat, scale);
     }
 
     return detection;
 }
 
 
-std::tuple<bool, int, cv::Point> CrossLocsDetector::find_cell_side_length_cell_loc(
+std::tuple<bool, int, cv::Point2f> CrossLocsDetector::find_cell_side_length_cell_loc(
     cv::Mat const& image_thresholded,
     cv::Rect const& image_thresholded_roi,
     int const cell_side_length_min,
@@ -207,7 +207,7 @@ std::tuple<bool, int, cv::Point> CrossLocsDetector::find_cell_side_length_cell_l
         std::tie(mask_square, mask_square_perimeter) = get_mask_square(cell_side_length);
 
         bool cell_loc_found;
-        cv::Point cell_loc;
+        cv::Point2f cell_loc;
         std::tie(cell_loc_found, cell_loc) = find_kernel_loc(
             image_thresholded,
             image_thresholded_roi,
@@ -222,7 +222,7 @@ std::tuple<bool, int, cv::Point> CrossLocsDetector::find_cell_side_length_cell_l
         }
     }
 
-    return std::make_tuple(false, -1, cv::Point(-1, -1));
+    return std::make_tuple(false, -1, cv::Point2f(-1.0f, -1.0f));
 }
 
 
@@ -239,12 +239,12 @@ cv::Size CrossLocsDetector::get_cross_loc_search_roi(int const cell_side_length)
 }
 
 
-std::map<cv::Point, cv::Point, PointCompare> CrossLocsDetector::get_cross_locs_map(
+std::map<cv::Point, cv::Point2f, PointCompare> CrossLocsDetector::get_cross_locs_map(
     cv::Mat const& image_thresholded,
     std::vector<cv::Point> const& indices_init,
-    std::vector<cv::Point> const& cross_locs_init,
+    std::vector<cv::Point2f> const& cross_locs_init,
     std::vector<cv::Point> const& indices_deltas,
-    std::vector<cv::Point> const& cross_loc_deltas,
+    std::vector<cv::Point2f> const& cross_loc_deltas,
     cv::Size const roi_size,
     cv::Mat const& mask_cross,
     int const mask_cross_perimeter,
@@ -259,13 +259,13 @@ std::map<cv::Point, cv::Point, PointCompare> CrossLocsDetector::get_cross_locs_m
     }
 
     // Stores predicted initial values
-    std::map<cv::Point, cv::Point, PointCompare> cross_locs_init_map;
+    std::map<cv::Point, cv::Point2f, PointCompare> cross_locs_init_map;
     for (int i = 0; i < indices_init.size(); ++i)
     {
         cross_locs_init_map[indices_init[i]] = cross_locs_init[i];
     }
 
-    std::map<cv::Point, cv::Point, PointCompare> cross_locs_map;
+    std::map<cv::Point, cv::Point2f, PointCompare> cross_locs_map;
 
     while (!indices_queue.empty())
     {
@@ -275,10 +275,12 @@ std::map<cv::Point, cv::Point, PointCompare> CrossLocsDetector::get_cross_locs_m
         auto const& cross_loc_init = cross_locs_init_map[indices];
 
         bool cross_loc_found;
-        cv::Point cross_loc;
+        cv::Point2f cross_loc;
+        cv::Point const cross_loc_init_rounded(
+            cvRound(cross_loc_init.x), cvRound(cross_loc_init.y));
         std::tie(cross_loc_found, cross_loc) = find_kernel_loc(
             image_thresholded,
-            get_roi(cross_loc_init, roi_size),
+            get_roi(cross_loc_init_rounded, roi_size),
             mask_cross,
             mask_cross_perimeter,
             similarity_ratio_min);
@@ -310,12 +312,12 @@ std::map<cv::Point, cv::Point, PointCompare> CrossLocsDetector::get_cross_locs_m
 
 
 cv::Rect CrossLocsDetector::get_bounding_rectangle(
-    std::map<cv::Point, cv::Point, PointCompare> const& cross_locs_map)
+    std::map<cv::Point, cv::Point2f, PointCompare> const& cross_locs_map)
 {
     auto const x_min_max_it = std::minmax_element(
         cross_locs_map.cbegin(),
         cross_locs_map.cend(),
-        [](std::pair<cv::Point, cv::Point> const& p_1, std::pair<cv::Point, cv::Point> const& p_2)
+        [](auto const& p_1, auto const& p_2)
         {
             auto const& x_1 = p_1.first.x;
             auto const& x_2 = p_2.first.x;
@@ -326,7 +328,7 @@ cv::Rect CrossLocsDetector::get_bounding_rectangle(
     auto const y_min_max_it = std::minmax_element(
         cross_locs_map.cbegin(),
         cross_locs_map.cend(),
-        [](std::pair<cv::Point, cv::Point> const& p_1, std::pair<cv::Point, cv::Point> const& p_2)
+        [](auto const& p_1, auto const& p_2)
         {
             auto const& y_1 = p_1.first.y;
             auto const& y_2 = p_2.first.y;
@@ -343,7 +345,7 @@ cv::Rect CrossLocsDetector::get_bounding_rectangle(
 
 
 cv::Mat CrossLocsDetector::convert_to_mat(
-    std::map<cv::Point, cv::Point, PointCompare> const& cross_locs_map)
+    std::map<cv::Point, cv::Point2f, PointCompare> const& cross_locs_map)
 {
     if (cross_locs_map.empty())
     {
@@ -353,7 +355,7 @@ cv::Mat CrossLocsDetector::convert_to_mat(
     auto const bounding_rectangle = get_bounding_rectangle(cross_locs_map);
     auto const cross_loc_mat_size = bounding_rectangle.size() + cv::Size(1, 1);
 
-    cv::Mat cross_locs_mat(cross_loc_mat_size, CV_32SC2, cv::Scalar(-1, -1));
+    cv::Mat cross_locs_mat(cross_loc_mat_size, CV_32FC2, cv::Scalar(-1.0, -1.0));
 
     for (auto x_map = bounding_rectangle.tl().x, x_mat = 0; x_map <= bounding_rectangle.br().x; ++x_map, ++x_mat)
     {
@@ -365,7 +367,7 @@ cv::Mat CrossLocsDetector::convert_to_mat(
             auto const indices_cross_loc_it = cross_locs_map.find(indices_map);
             if (indices_cross_loc_it != cross_locs_map.end())
             {
-                cross_locs_mat.at<cv::Point>(indices_mat) = indices_cross_loc_it->second;
+                cross_locs_mat.at<cv::Point2f>(indices_mat) = indices_cross_loc_it->second;
             }
         }
     }
@@ -386,7 +388,7 @@ cv::Mat CrossLocsDetector::augment(
         {
             cv::Point indices(x, y);
 
-            if (cross_locs_mat.at<cv::Point>(indices) == cv::Point(-1, -1))
+            if (cross_locs_mat.at<cv::Point2f>(indices) == cv::Point2f(-1.0f, -1.0f))
             {
                 indices_empty_set.insert(indices);
             }
@@ -398,10 +400,10 @@ cv::Mat CrossLocsDetector::augment(
 
     while (!indices_empty_set.empty())
     {
-        std::map<cv::Point, cv::Point, PointCompare> indices_cross_locs_interpolated_map;
+        std::map<cv::Point, cv::Point2f, PointCompare> indices_cross_locs_interpolated_map;
         for (auto const& indices : indices_empty_set)
         {
-            std::vector<cv::Point> cross_locs_interpolated;
+            std::vector<cv::Point2f> cross_locs_interpolated;
 
             for (auto const& indices_delta : INDICES_DELTAS)
             {
@@ -427,23 +429,26 @@ cv::Mat CrossLocsDetector::augment(
                         indices_neighbors.end(),
                         [&cross_locs_mat_augmented](cv::Point const& indices)
                         {
-                            return cross_locs_mat_augmented.at<cv::Point>(indices) != cv::Point(-1, -1);
+                            return cross_locs_mat_augmented.at<cv::Point2f>(indices) != cv::Point2f(-1.0f, -1.0f);
                         });
 
                     if (indices_neighbors_have_value)
                     {
-                        std::vector<cv::Point> neighbors;
+                        std::vector<cv::Point2f> neighbors;
                         std::transform(
                             indices_neighbors.begin(),
                             indices_neighbors.end(),
                             std::back_inserter(neighbors),
                             [&cross_locs_mat_augmented](cv::Point const& indices)
                             {
-                                return cross_locs_mat_augmented.at<cv::Point>(indices);
+                                return cross_locs_mat_augmented.at<cv::Point2f>(indices);
                             });
 
                         auto const direction = indices - indices_neighbors[0];
-                        auto const cross_loc_interpolated = neighbors[0] + cell_side_length * direction;
+                        cv::Point2f const direction_float(
+                            static_cast<float>(direction.x), static_cast<float>(direction.y));
+                        auto const cross_loc_interpolated =
+                            neighbors[0] + static_cast<float>(cell_side_length) * direction_float;
 
                         cross_locs_interpolated.push_back(cross_loc_interpolated);
                     }
@@ -455,8 +460,8 @@ cv::Mat CrossLocsDetector::augment(
                 auto const cross_locs_interpolated_sum = std::accumulate(
                     cross_locs_interpolated.begin(),
                     cross_locs_interpolated.end(),
-                    cv::Point());
-                auto const cross_locs_interpolated_n = static_cast<int>(cross_locs_interpolated.size());
+                    cv::Point2f());
+                auto const cross_locs_interpolated_n = static_cast<float>(cross_locs_interpolated.size());
                 auto const cross_loc_interpolated =
                     cross_locs_interpolated_sum / cross_locs_interpolated_n;
 
@@ -467,10 +472,10 @@ cv::Mat CrossLocsDetector::augment(
         for (auto const& indices_cross_loc_interpolated : indices_cross_locs_interpolated_map)
         {
             cv::Point indices;
-            cv::Point cross_loc_interpolated;
+            cv::Point2f cross_loc_interpolated;
             std::tie(indices, cross_loc_interpolated) = indices_cross_loc_interpolated;
 
-            cross_locs_mat_augmented.at<cv::Point>(indices) = cross_loc_interpolated;
+            cross_locs_mat_augmented.at<cv::Point2f>(indices) = cross_loc_interpolated;
 
             indices_empty_set.erase(indices);
         }
@@ -482,7 +487,7 @@ cv::Mat CrossLocsDetector::augment(
 
 cv::Mat CrossLocsDetector::get_cross_locs_main_mat(
     cv::Mat const& image_thresholded,
-    cv::Point const& cross_loc_init,
+    cv::Point2f const& cross_loc_init,
     int const cell_side_length,
     double const similarity_ratio_min)
 {
@@ -497,11 +502,11 @@ cv::Mat CrossLocsDetector::get_cross_locs_main_mat(
     std::tie(mask_cross, mask_cross_perimeter) =
         get_mask_cross(mask_length_odd, line_width_half);
 
-    std::vector<cv::Point> const cross_loc_deltas = {
-        cv::Point(0, -cell_side_length),
-        cv::Point(cell_side_length, 0),
-        cv::Point(0, cell_side_length),
-        cv::Point(-cell_side_length, 0) };
+    std::vector<cv::Point2f> const cross_loc_deltas = {
+        cv::Point2f(0.0f, -cell_side_length),
+        cv::Point2f(cell_side_length, 0.0f),
+        cv::Point2f(0.0f, cell_side_length),
+        cv::Point2f(-cell_side_length, 0.0f) };
 
     auto const cross_locs_main_map = get_cross_locs_map(
         image_thresholded,
@@ -527,7 +532,7 @@ cv::Mat CrossLocsDetector::get_cross_locs_main_mat(
     cv::Mat cross_locs_main_resized_mat(
         cross_locs_main_resized_mat_size,
         cross_locs_main_mat.type(),
-        cv::Scalar(-1, -1));
+        cv::Scalar(-1.0, -1.0));
 
     cv::Rect const roi(cv::Point(1, 1), cross_locs_main_mat.size());
     cross_locs_main_mat.copyTo(cross_locs_main_resized_mat(roi));
@@ -546,15 +551,15 @@ cv::Mat CrossLocsDetector::get_cross_locs_top_mat(
     double const similarity_ratio_min)
 {
     std::vector<cv::Point> indices_neighbors_init;
-    std::vector<cv::Point> cross_locs_neighbors_init;
+    std::vector<cv::Point2f> cross_locs_neighbors_init;
 
     // The last is not a cross
     for (auto x = 0; x < cross_locs_main_mat.cols - 1; ++x)
     {
         cv::Point const indices(x, 0);
-        auto const& cross_loc = cross_locs_main_mat.at<cv::Point>(indices);
+        auto const& cross_loc = cross_locs_main_mat.at<cv::Point2f>(indices);
 
-        if (cross_loc != cv::Point(-1, -1))
+        if (cross_loc != cv::Point2f(-1.0f, -1.0f))
         {
             indices_neighbors_init.push_back(indices);
 
@@ -568,10 +573,10 @@ cv::Mat CrossLocsDetector::get_cross_locs_top_mat(
         cv::Point(1, 0),
         cv::Point(-1, 0) };
 
-    std::vector<cv::Point> const cross_loc_deltas = {
-        cv::Point(0, -cell_side_length),
-        cv::Point(cell_side_length, 0),
-        cv::Point(-cell_side_length, 0) };
+    std::vector<cv::Point2f> const cross_loc_deltas = {
+        cv::Point2f(0.0f, -cell_side_length),
+        cv::Point2f(cell_side_length, 0.0f),
+        cv::Point2f(-cell_side_length, 0.0f) };
 
     auto const cell_side_length_odd = cell_side_length / 2 * 2 + 1;
 
@@ -604,7 +609,7 @@ cv::Mat CrossLocsDetector::get_cross_locs_top_mat(
     cv::Mat cross_locs_top_resized_mat(
         cross_locs_top_resized_mat_size,
         cross_locs_top_mat.type(),
-        cv::Scalar(-1, -1));
+        cv::Scalar(-1.0, -1.0));
 
     cv::Rect const roi(cv::Point(0, 1), cross_locs_top_mat.size());
     cross_locs_top_mat.copyTo(cross_locs_top_resized_mat(roi));
@@ -623,15 +628,15 @@ cv::Mat CrossLocsDetector::get_cross_locs_left_mat(
     double const similarity_ratio_min)
 {
     std::vector<cv::Point> indices_neighbors_init;
-    std::vector<cv::Point> cross_locs_neighbors_init;
+    std::vector<cv::Point2f> cross_locs_neighbors_init;
 
     // The last is not a cross
     for (auto y = 0; y < cross_locs_main_mat.rows - 1; ++y)
     {
         cv::Point const indices(0, y);
-        auto const& cross_loc = cross_locs_main_mat.at<cv::Point>(indices);
+        auto const& cross_loc = cross_locs_main_mat.at<cv::Point2f>(indices);
 
-        if (cross_loc != cv::Point(-1, -1))
+        if (cross_loc != cv::Point2f(-1.0f, -1.0f))
         {
             indices_neighbors_init.push_back(indices);
 
@@ -645,10 +650,10 @@ cv::Mat CrossLocsDetector::get_cross_locs_left_mat(
         cv::Point(0, 1),
         cv::Point(-1, 0) };
 
-    std::vector<cv::Point> const cross_loc_deltas = {
-        cv::Point(0, -cell_side_length),
-        cv::Point(0, cell_side_length),
-        cv::Point(-cell_side_length, 0) };
+    std::vector<cv::Point2f> const cross_loc_deltas = {
+        cv::Point2f(0.0f, -cell_side_length),
+        cv::Point2f(0.0f, cell_side_length),
+        cv::Point2f(-cell_side_length, 0.0f) };
 
     auto const cell_side_length_odd = cell_side_length / 2 * 2 + 1;
 
@@ -681,7 +686,7 @@ cv::Mat CrossLocsDetector::get_cross_locs_left_mat(
     cv::Mat cross_locs_left_resized_mat(
         cross_locs_left_resized_mat_size,
         cross_locs_left_mat.type(),
-        cv::Scalar(-1, -1));
+        cv::Scalar(-1.0, -1.0));
 
     cv::Rect const roi(cv::Point(1, 0), cross_locs_left_mat.size());
     cross_locs_left_mat.copyTo(cross_locs_left_resized_mat(roi));
@@ -690,6 +695,31 @@ cv::Mat CrossLocsDetector::get_cross_locs_left_mat(
         augment(cross_locs_left_resized_mat, cell_side_length);
 
     return cross_locs_left_resized_augmented_mat;
+}
+
+
+cv::Mat CrossLocsDetector::scale_cross_locs_mat(
+    cv::Mat const& cross_locs_mat,
+    float const scale)
+{
+    if (cross_locs_mat.empty())
+    {
+        return cv::Mat();
+    }
+
+    cv::Mat out = cross_locs_mat.clone();
+    for (int y = 0; y < out.rows; ++y)
+    {
+        for (int x = 0; x < out.cols; ++x)
+        {
+            auto& cross_loc = out.at<cv::Point2f>(y, x);
+            if (cross_loc != cv::Point2f(-1.0f, -1.0f))
+            {
+                cross_loc = cv::Point2f(cross_loc.x / scale, cross_loc.y / scale);
+            }
+        }
+    }
+    return out;
 }
 
 
@@ -707,9 +737,9 @@ cv::Mat CrossLocsDetector::draw(
     }
 
     std::for_each(
-        cross_locs_mat.begin<cv::Point>(),
-        cross_locs_mat.end<cv::Point>(),
-        [&](cv::Point const& cross_loc)
+        cross_locs_mat.begin<cv::Point2f>(),
+        cross_locs_mat.end<cv::Point2f>(),
+        [&](cv::Point2f const& cross_loc)
         {
             cv::circle(image_copy, cross_loc, radius, color, -1);
         });

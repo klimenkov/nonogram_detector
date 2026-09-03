@@ -53,7 +53,7 @@ private:
     static std::vector<cv::Point> const INDICES_DELTAS;
 
 
-    static std::tuple<bool, int, cv::Point> find_cell_side_length_cell_loc(
+    static std::tuple<bool, int, cv::Point2f> find_cell_side_length_cell_loc(
         cv::Mat const& image_thresholded,
         cv::Rect const& image_thresholded_roi,
         int const cell_side_length_min,
@@ -62,12 +62,12 @@ private:
 
 
     // <indices_init> must correspond with <cross_locs_init>
-    static std::map<cv::Point, cv::Point, PointCompare> get_cross_locs_map(
+    static std::map<cv::Point, cv::Point2f, PointCompare> get_cross_locs_map(
         cv::Mat const& image_thresholded,
         std::vector<cv::Point> const& indices_init,
-        std::vector<cv::Point> const& cross_locs_init,
+        std::vector<cv::Point2f> const& cross_locs_init,
         std::vector<cv::Point> const& indices_deltas,
-        std::vector<cv::Point> const& cross_loc_deltas,
+        std::vector<cv::Point2f> const& cross_loc_deltas,
         cv::Size const roi_size,
         cv::Mat const& mask_cross,
         int const mask_cross_perimeter,
@@ -78,11 +78,11 @@ private:
 
 
     static cv::Rect get_bounding_rectangle(
-        std::map<cv::Point, cv::Point, PointCompare> const& cross_locs_map);
+        std::map<cv::Point, cv::Point2f, PointCompare> const& cross_locs_map);
 
 
     static cv::Mat convert_to_mat(
-        std::map<cv::Point, cv::Point, PointCompare> const& cross_locs_map);
+        std::map<cv::Point, cv::Point2f, PointCompare> const& cross_locs_map);
 
 
     static cv::Mat augment(
@@ -92,7 +92,7 @@ private:
 
     static cv::Mat get_cross_locs_main_mat(
         cv::Mat const& image_thresholded,
-        cv::Point const& cross_loc_init,
+        cv::Point2f const& cross_loc_init,
         int const cell_side_length,
         double const similarity_ratio_min);
 
@@ -109,6 +109,11 @@ private:
         cv::Mat const& cross_locs_main_mat,
         int const cell_side_length,
         double const similarity_ratio_min);
+
+
+    static cv::Mat scale_cross_locs_mat(
+        cv::Mat const& cross_locs_mat,
+        float const scale);
 
 
 };
