@@ -3,6 +3,10 @@ set(SOURCES
 
 add_executable(nonogram_detector_application ${SOURCES})
 target_link_libraries(nonogram_detector_application nonogram_detector)
+if(NG_ENABLE_SOLVER)
+	target_link_libraries(nonogram_detector_application nonogram_solver)
+	target_compile_definitions(nonogram_detector_application PRIVATE NG_ENABLE_SOLVER=1)
+endif()
 
 # Ensure the bundled digit-recognition model sits next to the executable so the
 # default model-path resolution works regardless of the working directory.

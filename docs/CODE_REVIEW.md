@@ -415,3 +415,59 @@ The clue strips of a detected nonogram are now decoded into digits:
   is a known limitation of a generic digit model on real photos; a print-font
   trained/tuned model would improve this further.
 
+### Nonogram solver step (2026-09-03)
+
+The decoded clue strips are now fed to a nonogram solver, completing the
+detect → decode → solve pipeline. This closes the "solve the puzzle" goal that the
+application had not yet reached.
+
+**Design:** a small stateless adapter `ng::solve_nonogram` (`nonogram_solver/`,
+`libnonogram_solver`) wraps the third-party **picross** C++17 solver
+(`pierre-dejoue/picross-solver`, MIT). It is the only translation unit that links
+picross; the rest of the codebase never does. `ng::ClueConstraints` (decoded
+`left` → row constraints, `top` transposed → column constraints) maps onto
+`picross::InputGrid`, `picross::get_ref_solver()` solves, and the first solution
+grid is surfaced as a `vector<vector<int>>` of 0/1 (`ng::SolveResult`:
+`solved`, `line_solvable`, `solution_count`, `solution`, `message`).
+
+**CMake integration:**
+- Top-level `CMakeLists.txt` pulls picross via `FetchContent` (pinned to commit
+  `a24d940…`, `GIT_SHALLOW`), disabling its bundled app/CLI/tests/examples
+  (`PICROSS_BUILD_* OFF`). The vendored `-Werror` is stripped from the picross
+  target because it fails on a GCC null-deref false positive (only the flag is
+  removed; other warnings stay).
+- `add_subdirectory(nonogram_solver)` and the app/`ut` link it only when
+  `NG_ENABLE_SOLVER` (default ON, so the network fetch can be turned off). The
+  application and unit-test targets gate solver wiring behind `NG_ENABLE_SOLVER`.
+
+**Validation & hardening (systematic debugging):**
+- Initial real-photo run **crashed** with
+  `std::logic_error: Constraint::line_trivial_reduction: line_size < min_line_size`
+  because the generic digit recognizer produces spurious/overflowing clues on
+  real photos, and the adapter passed the malformed constraints straight into the
+  solver.
+- **Root cause:** `solve_nonogram` did not validate constraints; picross
+  explicitly requires the caller to validate first (`check_input_grid`) and
+  throws otherwise.
+- **Fix:** `solve_nonogram` now calls `picross::check_input_grid` first and
+  returns an unsolved result with the returned reason (zero dimension, a clue
+  whose `min_line_size` exceeds the grid axis, or row/column filled-tile total
+  mismatch) instead of letting the library throw.
+- Added a `solver_test` regression case ("clue overflowing grid dimension") that
+  previously aborted and now reports failure gracefully. The unit suite also
+  covers the 6×6 README puzzle (correct 1-solution grid) and a contradictory
+  grid.
+
+**Verification (2026-09-03, headless):**
+- Full build clean; all `nonogram_detector_ut` cases pass (detection, digit
+  recognition, solver ground truth + regressions).
+- Real-photo end-to-end no longer crashes; every `found=true` photo that feeds an
+  inconsistent decode now reports `solver: invalid constraints: …` / `no solution`
+  rather than aborting. The underlying cause is the documented generic-MNIST
+  over-confidence on clue cells (spurious digits → clues that overflow the grid),
+  i.e. a decode-quality limitation, not a solve defect.
+- On well-formed input the solver is correct: both bundled webpbn puzzles
+  (`nonograms/webpbn000002.non` 8×8 and `webpbn000004.non` 27×25) fed through
+  `solve_nonogram` solve to **their exact `goal` solutions**, each unique and
+  line-solvable.
+

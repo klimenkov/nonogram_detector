@@ -10,6 +10,9 @@
 #include "decode.hpp"
 #include "digit_recognizer.hpp"
 #include "image_operations.hpp"
+#ifdef NG_ENABLE_SOLVER
+#	include "solver.hpp"
+#endif
 
 
 namespace
@@ -34,6 +37,21 @@ void print_clue_grid(std::vector<std::vector<int>> const& grid)
         std::cout << "\n";
     }
 }
+
+#ifdef NG_ENABLE_SOLVER
+
+// Prints the solved grid as ASCII: '#' = filled, '.' = empty.
+void print_solution_grid(std::vector<std::vector<int>> const& solution)
+{
+    for (auto const& row : solution)
+    {
+        for (int const cell : row)
+            std::cout << (cell ? '#' : '.');
+        std::cout << "\n";
+    }
+}
+
+#endif
 
 }
 
@@ -99,6 +117,32 @@ int main(int argc, char** argv)
         print_clue_grid(clues.top);
         std::cout << "left clues:\n";
         print_clue_grid(clues.left);
+
+#ifdef NG_ENABLE_SOLVER
+        // Convert the decoded clue strips into solver constraints: the left
+        // strip maps directly to row constraints; the top strip is transposed
+        // so it becomes one clue per grid column.
+        ng::ClueConstraints constraints;
+        constraints.rows = clues.left;
+        constraints.cols.assign(clues.top.size() ? clues.top[0].size() : 0, {});
+        for (std::size_t row = 0; row < clues.top.size(); ++row)
+            for (std::size_t col = 0; col < clues.top[row].size(); ++col)
+                constraints.cols[col].push_back(clues.top[row][col]);
+
+        auto const result = ng::solve_nonogram(constraints);
+        std::cout << "solver: " << result.message << "\n";
+        if (result.solved)
+        {
+            std::cout << "solutions=" << result.solution_count
+                      << " line_solvable=" << (result.line_solvable ? "true" : "false")
+                      << "\n";
+            print_solution_grid(result.solution);
+        }
+        else
+        {
+            std::cout << "no solution\n";
+        }
+#endif
     }
     else
     {

@@ -18,18 +18,23 @@ with debugging instrumentation still present.
 
 ## 2. Build system
 
-CMake with three subprojects:
+CMake with four subprojects:
 
 | Subproject | Type | Purpose |
 |---|---|---|
 | `nonogram_detector` | static library | Core algorithm (`ng` namespace) |
+| `nonogram_solver` | static library | Adapter wrapping the third-party picross solver |
 | `nonogram_detector_application` | executable | Driver program (argument-driven, headless) |
-| `nonogram_detector_ut` | executable | Automated synthetic-grid unit tests |
+| `nonogram_detector_ut` | executable | Automated synthetic-grid + solver unit tests |
 
-- `cmake_minimum_required(VERSION 2.8)` and `.gitignore` entries (`.vs`,
-  `CMakeSettings.json`) indicate a Windows/Visual Studio origin.
 - The library links OpenCV (`find_package(OpenCV REQUIRED)`,
-  `core`/`imgproc`/`imgcodecs`) and exposes its `include/` dir publicly.
+  `core`/`imgproc`/`imgcodecs`/`dnn`) and exposes its `include/` dir publicly.
+- The solver module links the third-party **picross** library, pulled in at
+  configure time via `FetchContent` (pinned commit, `GIT_SHALLOW`; its bundled
+  app/CLI/tests/examples are disabled via `PICROSS_BUILD_* OFF`, and `-Werror`
+  is stripped from the picross target to survive modern GCC). The fetch can be
+  disabled with `-DNG_ENABLE_SOLVER=OFF`, which also removes `nonogram_solver`
+  and the solver wiring from the application/tests.
 - There is no interactive/display component: the library and application are
   headless and never open a window or wait for user input.
 
@@ -56,11 +61,16 @@ nonogram_detector/
     grid_detector.cpp         LEGACY, not compiled
   models/
     digits.onnx               Bundled MNIST-digit CNN (ONNX Model Zoo)
+nonogram_solver/
+  include/solver.hpp          Declares ng::ClueConstraints / ng::SolveResult / solve_nonogram
+  src/solver.cpp              Adapter over picross (the only TU linking picross)
 nonogram_detector_application/main.cpp
 ```
 
-Dependency direction is one-way: `application` links the library; library
-modules depend only on OpenCV (core/imgproc/imgcodecs/dnn) and each other.
+Dependency direction is one-way: `application` links the detector library and
+the solver library; library modules depend only on OpenCV
+(core/imgproc/imgcodecs/dnn), each other, and (for `nonogram_solver`) the
+vendored `picross`.
 
 ### 3.0 `DigitRecognizer` & `decode`
 
@@ -81,7 +91,26 @@ modules depend only on OpenCV (core/imgproc/imgcodecs/dnn) and each other.
 
 
 
-### 3.1 `point_compare`
+### 3.0a `solve_nonogram` adapter (`nonogram_solver`)
+
+`ng::solve_nonogram` (`nonogram_solver`) is a small stateless adapter over the
+third-party **picross** solver (`pierre-dejoue/picross-solver`, vendored via
+`FetchContent`). It is the only translation unit that links picross; the rest of
+the codebase never does, keeping the dependency isolated behind a stable, minimal
+API.
+
+- `ng::ClueConstraints` holds decoded clues: `rows` (one clue per grid row, from
+  the `left` strip) and `cols` (one clue per grid column, from the `top` strip
+  transposed). Values `<= 0` inside a line are treated as absent.
+- `solve_nonogram` builds a `picross::InputGrid`, **validates it with
+  `picross::check_input_grid`** (rejecting zero dimensions, a clue whose
+  `min_line_size` exceeds the grid axis, or mismatched row/column filled-tile
+  totals) and returns `ng::SolveResult { solved, line_solvable, solution_count,
+  solution, message }` rather than letting the library throw on bad input. The
+  first solution (or partial grid when not line-solvable) is surfaced as a
+  `vector<vector<int>>` of 0/1.
+- The whole solver unit sits behind the `NG_ENABLE_SOLVER` build flag, so the
+  network fetch and picross dependency can be turned off entirely.
 
 `ng::PointCompare` provides a strict weak ordering over `cv::Point`
 (`p1.x < p2.x`, ties broken by `y`). It is used so `cv::Point` can be a key in
@@ -202,8 +231,24 @@ A procedural, headless driver:
 2. Constructs `ng::CrossLocsDetector(resize_max, 15, 10.0, 5, 50, 0.9)`.
 3. Runs `detect`, prints the found-flag, and draws the main/top/left results as
    blue/green/red circles.
-4. When the `NG_SAVE_OUTPUT` environment variable is set, saves the overlay to
+4. Decodes the clue strips via `ng::decode_clues` and prints `top clues:` /
+   `left clues:` headlessly.
+5. When `NG_ENABLE_SOLVER` is defined, builds `ng::ClueConstraints` from the
+   decoded clues (rows = `left` strip, cols = `top` strip transposed), calls
+   `ng::solve_nonogram`, prints the solver message / solution count, and — when
+   solved — renders the first solution grid as ASCII (`#` filled, `.` empty).
+6. When the `NG_SAVE_OUTPUT` environment variable is set, saves the overlay to
    `grid.png`. No window is ever opened; it never waits for user input.
+
+## 4b. Solve phase (after detection & decode)
+
+The detect → decode → solve chain is split across two libraries: `detect`
+(locating the grid) and `decode_clues` (reading digits) live in
+`nonogram_detector`; the final solve step lives in `nonogram_solver`. The
+application is the only place that composes them. A malformed decode (spurious
+digits from the generic MNIST model) is rejected with a clear "invalid
+constraints" status by `check_input_grid` rather than aborting, so the pipeline
+degrades gracefully on noisy real photos.
 
 ## 7. Experiment driver (removed)
 

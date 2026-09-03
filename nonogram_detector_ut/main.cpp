@@ -11,6 +11,10 @@
 // Defined in digit_recognizer_test.cpp
 int run_digit_recognizer_tests();
 
+#ifdef NG_ENABLE_SOLVER
+int run_solver_tests();   // defined in solver_test.cpp
+#endif
+
 
 namespace
 {
@@ -131,6 +135,10 @@ int main()
     }
 
     failures += run_digit_recognizer_tests();
+
+#ifdef NG_ENABLE_SOLVER
+    failures += run_solver_tests();
+#endif
 
     if (failures > 0)
     {
