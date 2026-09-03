@@ -148,7 +148,7 @@ bool test_two_digit(ng::DigitRecognizer& recognizer)
             if (recognizer.digit_count(img) != 2)
                 continue;
             ++flagged;
-            int const two = recognizer.recognize_two_digits(img);
+            int const two = recognizer.recognize_two_digits(img, 2);
             if (two >= 10 && two <= 99)
                 ++compose_ok;
         }
@@ -161,8 +161,9 @@ bool test_two_digit(ng::DigitRecognizer& recognizer)
     return ok && flagged > 0;
 }
 
-// The split-read must refuse (return -1) when no counter model has been set,
-// so a downstream whole-cell fallback is possible. Uses its own recognizer
+// The split-read must refuse (return -1) when no counter model has been set
+// (digit_count returns -1, which recognize_two_digits rejects), so a
+// downstream whole-cell fallback is possible. Uses its own recognizer
 // because the shared one has a counter model configured by test_two_digit.
 bool test_two_digit_no_counter(ng::DigitRecognizer const& /*recognizer*/)
 {
@@ -170,7 +171,7 @@ bool test_two_digit_no_counter(ng::DigitRecognizer const& /*recognizer*/)
     cv::Mat cell(60, 60, CV_8UC1, cv::Scalar(255));
     cv::putText(cell, "12", cv::Point(12, 42), cv::FONT_HERSHEY_SIMPLEX, 0.9,
                 cv::Scalar(0), 2, cv::LINE_AA);
-    bool const ok = fresh.recognize_two_digits(cell) == -1;
+    bool const ok = fresh.recognize_two_digits(cell, fresh.digit_count(cell)) == -1;
     std::cout << "  [" << (ok ? "ok" : "FAIL")
               << "] recognize_two_digits guarded by counter model presence\n";
     return ok;

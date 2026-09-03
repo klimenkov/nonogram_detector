@@ -51,13 +51,17 @@ public:
     // the cell has no reliable foreground.
     int digit_count_ex(cv::Mat const& cell, double& prob_two) const;
 
-    // Reads a cell that holds two digits (counter model says digit_count == 2):
-    // splits the warped cell into left/right halves, upscales each by
-    // <upscale> with INTER_CUBIC (so each half is large enough for reliable
-    // single-digit recognition), reads each half, and returns left*10+right.
-    // Returns -1 when the counter model does not flag the cell as two digits,
-    // either half cannot be read reliably, or the composed value leaves [0, 99].
-    int recognize_two_digits(cv::Mat const& cell, int upscale = 3) const;
+    // Reads a cell that holds two digits: splits the warped cell into
+    // left/right halves, upscales each by <upscale> with INTER_CUBIC (so each
+    // half is large enough for reliable single-digit recognition), reads each
+    // half, and returns left*10+right. <count> must be the cell's digit_count()
+    // result, which the caller is expected to have computed already (this
+    // avoids a second counter-model forward pass); anything other than 2
+    // returns -1. Each half must also clear <confidence_min> softmax
+    // confidence. Returns -1 when either half cannot be read reliably or the
+    // composed value leaves [0, 99].
+    int recognize_two_digits(cv::Mat const& cell, int count, int upscale = 3,
+                             double confidence_min = 0.0) const;
 
     // Normalizes a raw cell image into the 1x1x28x28 whitened input blob the
     // MNIST model expects. White digit on black, normalized (x/255 - 0.1307)

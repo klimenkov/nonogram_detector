@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
+#include <utility>
 
 namespace ng
 {
@@ -13,6 +14,23 @@ namespace
 constexpr int kMnistSize = 28;
 constexpr double kMean = 0.1307;
 constexpr double kStd = 0.3081;
+
+// Softmax-normalizes a flat 1xN logits row. Returns the argmax location and
+// the full probability row (CV_32F, same shape), so callers can read the
+// probability of any class, not just the top one.
+std::pair<cv::Point, cv::Mat> softmax_probs(cv::Mat const& logits_flat)
+{
+    double max_val = 0.0;
+    cv::Point max_loc;
+    cv::minMaxLoc(logits_flat, nullptr, &max_val, nullptr, &max_loc);
+
+    cv::Mat shifted = logits_flat - cv::Scalar(max_val);
+    cv::exp(shifted, shifted);
+    double const sum = cv::sum(shifted)[0];
+    cv::Mat probs = shifted / sum;
+
+    return std::make_pair(max_loc, probs);
+}
 
 // Returns the bounding box of the largest contour in <binary> (whose foreground
 // is white on black), or an empty rect if there is none. The caller should feed
@@ -145,18 +163,10 @@ int DigitRecognizer::recognize_ex(cv::Mat const& cell, double& confidence) const
     if (logits.empty() || logits.total() != 10)
         return -1;
 
-    cv::Mat logits_flat = logits.reshape(1, 1);
-
-    // Softmax-normalize the logits so the top value is a probability in [0, 1],
-    // which is a meaningful per-class confidence for the confidence_min gate.
-    double max_val = 0.0;
     cv::Point max_loc;
-    cv::minMaxLoc(logits_flat, nullptr, &max_val, nullptr, &max_loc);
-
-    cv::Mat shifted = logits_flat - cv::Scalar(max_val);
-    cv::exp(shifted, shifted);
-    double const sum = cv::sum(shifted)[0];
-    confidence = shifted.at<float>(0, max_loc.x) / sum;
+    cv::Mat probs;
+    std::tie(max_loc, probs) = softmax_probs(logits.reshape(1, 1));
+    confidence = probs.at<float>(0, max_loc.x);
 
     return max_loc.x;
 }
@@ -183,22 +193,23 @@ int DigitRecognizer::digit_count_ex(cv::Mat const& cell, double& prob_two) const
     if (logits.empty() || logits.total() != 2)
         return -1;
 
-    cv::Mat flat = logits.reshape(1, 1);
-    double max_val = 0.0;
     cv::Point max_loc;
-    cv::minMaxLoc(flat, nullptr, &max_val, nullptr, &max_loc);
-
-    cv::Mat shifted = flat - cv::Scalar(max_val);
-    cv::exp(shifted, shifted);
-    double const sum = cv::sum(shifted)[0];
-    prob_two = shifted.at<float>(0, 1) / sum;
+    cv::Mat probs;
+    std::tie(max_loc, probs) = softmax_probs(logits.reshape(1, 1));
+    prob_two = probs.at<float>(0, 1);
 
     return max_loc.x + 1; // class 0 -> 1 digit, class 1 -> 2 digits
 }
 
-int DigitRecognizer::recognize_two_digits(cv::Mat const& cell, int upscale) const
+int DigitRecognizer::recognize_two_digits(
+    cv::Mat const& cell,
+    int count,
+    int upscale,
+    double confidence_min) const
 {
-    if (digit_count(cell) != 2)
+    // The caller already ran digit_count(); trust its verdict instead of
+    // re-running the counter-model forward pass on the same cell.
+    if (count != 2)
         return -1;
 
     int const w = cell.cols;
@@ -213,8 +224,8 @@ int DigitRecognizer::recognize_two_digits(cv::Mat const& cell, int upscale) cons
     cv::resize(left, left_up, cv::Size(), upscale, upscale, cv::INTER_CUBIC);
     cv::resize(right, right_up, cv::Size(), upscale, upscale, cv::INTER_CUBIC);
 
-    int const l = recognize(left_up);
-    int const r = recognize(right_up);
+    int const l = recognize(left_up, confidence_min);
+    int const r = recognize(right_up, confidence_min);
     if (l < 0 || r < 0)
         return -1;
 

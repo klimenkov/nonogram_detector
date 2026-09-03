@@ -8,6 +8,13 @@ namespace ng
 namespace
 {
 
+// Split-read halves must each clear this softmax confidence floor before the
+// two-digit value is accepted; a half read below it (near-uniform softmax,
+// ambiguous glyph) makes recognize_two_digits return -1 and decode falls back
+// to the whole-cell read. Calibrated on the marked two-digit corpus: genuine
+// halves score >= 0.48, ambiguous ones ~0.1.
+constexpr double kSplitConfidenceMin = 0.3;
+
 // Warps each clue cell of <cross_locs> into a fixed-size image and recognizes
 // the digit, filling <out> (row-major [row][col]) and <out_count> (per-cell
 // digit count 1/2, 0 for empty/unreliable). Cells with no recognizer output
@@ -36,8 +43,9 @@ void decode_region(
             {
                 // Genuine two-digit clue cell: read it as two digits by
                 // splitting the cell. Fall back to the whole-cell read when the
-                // split fails (e.g. a counter false positive on a single digit).
-                digit = recognizer.recognize_two_digits(cells[row][col]);
+                // split fails (e.g. a counter false positive on a single digit
+                // or a low-confidence half).
+                digit = recognizer.recognize_two_digits(cells[row][col], count, 3, kSplitConfidenceMin);
                 if (digit < 0)
                     digit = recognizer.recognize(cells[row][col]);
             }
