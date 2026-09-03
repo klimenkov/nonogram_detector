@@ -31,6 +31,19 @@ std::string status_to_string(picross::Solver::Status status)
     return "unknown";
 }
 
+// Copies a picross solution grid into the plain int matrix form used by the
+// rest of the pipeline (1 = filled, 0 = empty).
+std::vector<std::vector<int>> extract_solution(picross::OutputGrid const& grid)
+{
+    std::vector<std::vector<int>> solution(grid.height(), std::vector<int>(grid.width(), 0));
+    for (std::size_t y = 0; y < grid.height(); ++y)
+        for (std::size_t x = 0; x < grid.width(); ++x)
+            solution[y][x] =
+                grid.get_tile(static_cast<unsigned int>(x), static_cast<unsigned int>(y))
+                == picross::Tile::FILLED ? 1 : 0;
+    return solution;
+}
+
 }
 
 SolveResult solve_nonogram(ClueConstraints const& clues)
@@ -78,14 +91,9 @@ SolveResult solve_nonogram(ClueConstraints const& clues)
             result.solution_count = solve_result.solutions.size();
             if (!solve_result.solutions.empty())
             {
-                auto const& grid = solve_result.solutions.front().grid;
-                result.line_solvable = solve_result.solutions.front().branching_depth == 0;
-                result.solution.assign(grid.height(), std::vector<int>(grid.width(), 0));
-                for (std::size_t y = 0; y < grid.height(); ++y)
-                    for (std::size_t x = 0; x < grid.width(); ++x)
-                        result.solution[y][x] =
-                            grid.get_tile(static_cast<unsigned int>(x), static_cast<unsigned int>(y))
-                            == picross::Tile::FILLED ? 1 : 0;
+                auto const& solution = solve_result.solutions.front();
+                result.line_solvable = solution.branching_depth == 0;
+                result.solution = extract_solution(solution.grid);
             }
             break;
 
@@ -96,14 +104,9 @@ SolveResult solve_nonogram(ClueConstraints const& clues)
             result.solution_count = solve_result.solutions.size();
             if (!solve_result.solutions.empty())
             {
-                auto const& grid = solve_result.solutions.front().grid;
+                auto const& solution = solve_result.solutions.front();
                 result.line_solvable = false;
-                result.solution.assign(grid.height(), std::vector<int>(grid.width(), 0));
-                for (std::size_t y = 0; y < grid.height(); ++y)
-                    for (std::size_t x = 0; x < grid.width(); ++x)
-                        result.solution[y][x] =
-                            grid.get_tile(static_cast<unsigned int>(x), static_cast<unsigned int>(y))
-                            == picross::Tile::FILLED ? 1 : 0;
+                result.solution = extract_solution(solution.grid);
             }
             break;
 
