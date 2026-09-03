@@ -85,6 +85,17 @@ private:
         std::map<cv::Point, cv::Point2f, PointCompare> const& cross_locs_map);
 
 
+    // Shared tail of the cross-loc matrix builders: converts the BFS map to a
+    // dense matrix, embeds it into a larger sentinel-filled canvas at <offset>
+    // (<pad> extra entries overall), then augments missing entries. Returns an
+    // empty Mat when the map converted to nothing.
+    static cv::Mat convert_pad_augment(
+        std::map<cv::Point, cv::Point2f, PointCompare> const& cross_locs_map,
+        cv::Point const& offset,
+        cv::Size const& pad,
+        int const cell_side_length);
+
+
     static cv::Mat augment(
         cv::Mat const& cross_locs_mat,
         int const cell_side_length);
