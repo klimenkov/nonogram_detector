@@ -471,3 +471,45 @@ grid is surfaced as a `vector<vector<int>>` of 0/1 (`ng::SolveResult`:
   `solve_nonogram` solve to **their exact `goal` solutions**, each unique and
   line-solvable.
 
+### Structural consistency + correction layer (2026-09-03)
+
+The solver step above fixed crashes but left every real photo unsolvable because
+the generic-MNIST digit recognizer over-confidently misreads printed glyphs, and
+the decoder does not emit gap cells between distinct clues. This added a
+consistency + correction layer between decode and solve (approved scope:
+*structural* correction only, no new/trained model).
+
+**Design:** `ng::clue_corrector` (`nonogram_solver/include/clue_corrector.hpp`,
+`src/clue_corrector.cpp`, no picross dependency):
+- `analyze_consistency` reports row vs column filled-tile totals and which lines
+  overflow their grid axis — converting the solver's opaque
+  `invalid constraints: Width = … too small` into a precise, printable report
+  (`overflowing rows/cols: …`).
+- `correct_clues` applies two bounded, deterministic repairs:
+  1. **Sanitizer** — drops standalone `0` cells (border/stray reads); zeros inside
+     a multi-digit clue (`10`) are preserved.
+  2. **Grid-fit repair** — a run of adjacent non-empty cells that concatenates
+     into a clue number larger than the grid axis (an impossible clue, caused by
+     missing gap cells) is split into single-digit clues **only if that makes the
+     line fit**.
+- Wired into the app between `decode_clues` and `solve_nonogram`; the report is
+  printed before solving.
+
+**Verification (2026-09-03, headless):**
+- Full build clean; all `nonogram_detector_ut` cases pass, including new
+  `clue_corrector` cases covering grouping, min-size, the consistency report,
+  sanitizer, grid-fit split, and the realistic row-14 scenario below.
+- The gross multi-run concatenation overflow (e.g. `2 7 3 2` → `2732`) is now
+  folded away: on `20180811_114632.jpg` only row 14 and col 15 remain
+  overflowing after correction, instead of ~8 rows and ~20 cols.
+
+**Accepted ceiling (documented):** the repairs are purely structural, so they
+restore *a* consistent puzzle, not necessarily the original one. The photo's
+row-14 misread `9 2 7 7 1 1 2` (true `4 2 1 1 1 1 2`) cannot be recovered by
+structure: even split into single digits the misread values sum to a min line of
+35 > grid width 30, while the true clue (min 18) fits. Because each misread is
+high-confidence, no bounded structural edit can know to shrink `9→4, 7→1`. The
+corrector therefore reports the line as overflowing rather than guessing; the
+report is the deliverable, not a false solution.
+
+

@@ -2,3 +2,6 @@
 out
 build/
 CMakeSettings.json
+
+# superpowers run-state (brainstorm server pid/log), not source
+.superpowers/

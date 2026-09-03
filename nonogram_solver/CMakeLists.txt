@@ -1,6 +1,8 @@
 add_library(nonogram_solver
 	include/solver.hpp
-	src/solver.cpp)
+	src/solver.cpp
+	include/clue_corrector.hpp
+	src/clue_corrector.cpp)
 
 target_include_directories(nonogram_solver PUBLIC include)
 target_link_libraries(nonogram_solver PUBLIC picross::picross)

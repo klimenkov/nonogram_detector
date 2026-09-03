@@ -121,6 +121,10 @@ std::pair<bool, cv::Point> find_kernel_loc(
 
 std::vector<std::vector<cv::Mat>> get_cell_warped_images_vector(cv::Mat const& image, cv::Mat const& cross_locs)
 {
+    // Warp each clue cell to 20x20, matching the resolution the real-photo
+    // digit models were trained on (the marked 20x20 clue cells). Keeping the
+    // warp consistent with the training data makes both the single-digit and
+    // the counter model operate in-distribution.
     auto const cell_warped_side_length = 20;
     cv::Size const cell_warped_size(cell_warped_side_length, cell_warped_side_length);
 

@@ -14,13 +14,20 @@ namespace ng
 //
 // `top` and `left` are row-major grids of the same shape as the corresponding
 // detection region: element [i][j] is the digit in the clue cell at row i,
-// column j, or -1 when that cell is empty. Each row of the grid is one clue
-// line; consecutive non-empty entries within a row form a single clue number's
-// digits (e.g. {2, 3} -> 23).
+// column j, or -1 when that cell is empty. Each non-empty cell holds one full
+// clue number: a single digit (1..9) or a two-digit value (10..99, produced by
+// the counter-driven split reader). Adjacent non-empty cells are adjacent
+// *distinct* clues; they are never concatenated into digits of one number.
+//
+// `top_count` and `left_count` mirror the grids with each non-empty cell's
+// digit count (1 or 2) as classified by the counter model; cells that are
+// empty/unreliable hold 0.
 struct ClueGrid
 {
     std::vector<std::vector<int>> top;
     std::vector<std::vector<int>> left;
+    std::vector<std::vector<int>> top_count;
+    std::vector<std::vector<int>> left_count;
 };
 
 // Decodes every clue cell in the top and left strips of <detection> on <image>

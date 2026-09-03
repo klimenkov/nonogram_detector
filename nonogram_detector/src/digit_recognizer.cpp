@@ -48,6 +48,13 @@ DigitRecognizer::DigitRecognizer(std::filesystem::path const& model_path)
         throw std::runtime_error("DigitRecognizer: failed to load ONNX model from " + model_path.string());
 }
 
+void DigitRecognizer::set_counter_model(std::filesystem::path const& model_path)
+{
+    counter_net_ = cv::dnn::readNetFromONNX(model_path.string());
+    if (counter_net_.empty())
+        throw std::runtime_error("DigitRecognizer: failed to load counter ONNX model from " + model_path.string());
+}
+
 bool DigitRecognizer::prepare_input(cv::Mat const& cell, cv::Mat& out_blob)
 {
     if (cell.empty())
@@ -152,6 +159,69 @@ int DigitRecognizer::recognize_ex(cv::Mat const& cell, double& confidence) const
     confidence = shifted.at<float>(0, max_loc.x) / sum;
 
     return max_loc.x;
+}
+
+int DigitRecognizer::digit_count(cv::Mat const& cell) const
+{
+    double prob_two = 0.0;
+    return digit_count_ex(cell, prob_two);
+}
+
+int DigitRecognizer::digit_count_ex(cv::Mat const& cell, double& prob_two) const
+{
+    prob_two = 0.0;
+    if (counter_net_.empty())
+        return -1;
+
+    cv::Mat blob;
+    if (!prepare_input(cell, blob))
+        return -1;
+
+    counter_net_.setInput(blob);
+    cv::Mat logits = counter_net_.forward();
+
+    if (logits.empty() || logits.total() != 2)
+        return -1;
+
+    cv::Mat flat = logits.reshape(1, 1);
+    double max_val = 0.0;
+    cv::Point max_loc;
+    cv::minMaxLoc(flat, nullptr, &max_val, nullptr, &max_loc);
+
+    cv::Mat shifted = flat - cv::Scalar(max_val);
+    cv::exp(shifted, shifted);
+    double const sum = cv::sum(shifted)[0];
+    prob_two = shifted.at<float>(0, 1) / sum;
+
+    return max_loc.x + 1; // class 0 -> 1 digit, class 1 -> 2 digits
+}
+
+int DigitRecognizer::recognize_two_digits(cv::Mat const& cell, int upscale) const
+{
+    if (digit_count(cell) != 2)
+        return -1;
+
+    int const w = cell.cols;
+    int const hw = w / 2;
+    if (hw <= 0)
+        return -1;
+
+    cv::Mat left = cell.colRange(0, hw);
+    cv::Mat right = cell.colRange(hw, w);
+
+    cv::Mat left_up, right_up;
+    cv::resize(left, left_up, cv::Size(), upscale, upscale, cv::INTER_CUBIC);
+    cv::resize(right, right_up, cv::Size(), upscale, upscale, cv::INTER_CUBIC);
+
+    int const l = recognize(left_up);
+    int const r = recognize(right_up);
+    if (l < 0 || r < 0)
+        return -1;
+
+    int const value = l * 10 + r;
+    if (value > 99)
+        return -1;
+    return value;
 }
 
 }

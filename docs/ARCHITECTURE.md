@@ -23,7 +23,7 @@ CMake with four subprojects:
 | Subproject | Type | Purpose |
 |---|---|---|
 | `nonogram_detector` | static library | Core algorithm (`ng` namespace) |
-| `nonogram_solver` | static library | Adapter wrapping the third-party picross solver |
+| `nonogram_solver` | static library | Adapter wrapping the third-party picross solver + dedicated clue-correction step |
 | `nonogram_detector_application` | executable | Driver program (argument-driven, headless) |
 | `nonogram_detector_ut` | executable | Automated synthetic-grid + solver unit tests |
 
@@ -64,6 +64,8 @@ nonogram_detector/
 nonogram_solver/
   include/solver.hpp          Declares ng::ClueConstraints / ng::SolveResult / solve_nonogram
   src/solver.cpp              Adapter over picross (the only TU linking picross)
+  include/clue_corrector.hpp  Declares ng::ClueCell/DecodedCells + corrector/report API
+  src/clue_corrector.cpp      Consistency analysis + correction layer (no picross dep)
 nonogram_detector_application/main.cpp
 ```
 
@@ -119,6 +121,41 @@ API.
 Note: `cv::Mat` of type `CV_32SC2` stores each element as a 2×int32 tuple, which
 `cv::Mat::at<cv::Point>` treats as a `cv::Point`. The code relies on this to store
 grid cross locations in a dense matrix.
+
+### 3.0b `ClueCorrector` consistency layer (`nonogram_solver`)
+
+`ng::clue_corrector` (`nonogram_solver/include/clue_corrector.hpp`,
+`src/clue_corrector.cpp`) is a dependency-light module (no picross) that sits
+between `decode` and `solve`. It exists because the generic MNIST digit
+classifier misreads printed-font glyphs confidently and inconsistently, so the
+decoded clue strips are not reliable enough to hand straight to the solver.
+
+- `ng::DecodedCells` wraps the raw clue-cell grids (`rows` = left strip, `cols`
+  = top strip transposed) as `ng::ClueCell { digit, confidence }`.
+- `ng::group_clue_line` turns a line of cells into clue numbers: consecutive
+  non-empty cells concatenate into multi-digit clues, and an empty cell
+  (`digit < 0`) separates clues. A resulting value of 0 (e.g. a lone `0`) is
+  dropped.
+- `ng::analyze_consistency` produces an `ng::ConsistencyReport`: the row vs
+  column filled-tile totals and which lines overflow their grid axis. This is
+  what converts the solver's opaque `invalid constraints` status into an
+  actionable, printable diagnostic.
+- `ng::correct_clues` applies two bounded, deterministic repairs before solving:
+  1. **Sanitizer** — drops standalone `0` cells (border/stray reads) while
+     preserving zeros inside multi-digit clues (`10`, `20`).
+  2. **Grid-fit repair** — when a run of adjacent non-empty cells concatenates
+     into a clue number larger than the grid axis (impossible for a real clue,
+     caused by the decoder not emitting gap cells between distinct clues) and
+     every digit is 1–9, splits the run into single-digit clues by inserting gap
+     cells — kept only if that makes the line fit.
+
+The corrected cells still may not equal the *true* puzzle: the repairs are purely
+structural (they restore *a* consistent puzzle, not necessarily the original
+one). A row like the photo's row-14 misread `9 2 7 7 1 1 2` cannot be recovered
+by structure alone because the misread digits are high-confidence and inflate the
+line past the grid even after splitting — the corrector therefore reports it as
+overflow rather than guess. This ceiling is accepted; the report is the contract.
+
 
 ### 3.2 `masks`
 
@@ -231,24 +268,30 @@ A procedural, headless driver:
 2. Constructs `ng::CrossLocsDetector(resize_max, 15, 10.0, 5, 50, 0.9)`.
 3. Runs `detect`, prints the found-flag, and draws the main/top/left results as
    blue/green/red circles.
-4. Decodes the clue strips via `ng::decode_clues` and prints `top clues:` /
-   `left clues:` headlessly.
-5. When `NG_ENABLE_SOLVER` is defined, builds `ng::ClueConstraints` from the
-   decoded clues (rows = `left` strip, cols = `top` strip transposed), calls
-   `ng::solve_nonogram`, prints the solver message / solution count, and — when
-   solved — renders the first solution grid as ASCII (`#` filled, `.` empty).
-6. When the `NG_SAVE_OUTPUT` environment variable is set, saves the overlay to
-   `grid.png`. No window is ever opened; it never waits for user input.
+ 4. Decodes the clue strips via `ng::decode_clues` and prints `top clues:` /
+    `left clues:` headlessly.
+ 5. When `NG_ENABLE_SOLVER` is defined, converts the decoded strips into
+    `ng::DecodedCells`, runs `ng::correct_clues` and prints the resulting
+    `ConsistencyReport` (tile totals + overflowing lines), re-groups the
+    corrected cells into `ng::ClueConstraints` (rows = `left` strip, cols = `top`
+    strip transposed), calls `ng::solve_nonogram`, prints the solver message /
+    solution count, and — when solved — renders the first solution grid as ASCII
+    (`#` filled, `.` empty).
+ 6. When the `NG_SAVE_OUTPUT` environment variable is set, saves the overlay to
+    `grid.png`. No window is ever opened; it never waits for user input.
 
 ## 4b. Solve phase (after detection & decode)
 
 The detect → decode → solve chain is split across two libraries: `detect`
 (locating the grid) and `decode_clues` (reading digits) live in
 `nonogram_detector`; the final solve step lives in `nonogram_solver`. The
-application is the only place that composes them. A malformed decode (spurious
-digits from the generic MNIST model) is rejected with a clear "invalid
-constraints" status by `check_input_grid` rather than aborting, so the pipeline
-degrades gracefully on noisy real photos.
+application is the only place that composes them. The consistency layer of
+`correct_clues` runs between decode and solve (see §3.0b), folding gross
+decode artifacts (concatenated over-wide runs, stray `0`s) into a consistent-enough
+constraint set, and printing a report that names *why* a puzzle still cannot be
+solved. A malformed decode (spurious digits from the generic MNIST model) is then
+rejected with a clear "invalid constraints" status by `check_input_grid` rather
+than aborting, so the pipeline degrades gracefully on noisy real photos.
 
 ## 7. Experiment driver (removed)
 

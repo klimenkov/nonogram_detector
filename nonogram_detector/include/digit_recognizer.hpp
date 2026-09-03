@@ -24,6 +24,13 @@ public:
     // file cannot be read or parsed.
     explicit DigitRecognizer(std::filesystem::path const& model_path);
 
+    // Loads a second ONNX model that classifies each cell as holding 1 or 2
+    // digits. Throws std::runtime_error if the file cannot be read. The counter
+    // model shares the same input normalization as the digit model (28x28) and
+    // emits 2 logits. Not required for recognition; digit_count() returns -1
+    // when no counter model is set.
+    void set_counter_model(std::filesystem::path const& model_path);
+
     // Returns the recognized digit in [0, 9], or -1 if the cell appears empty
     // (no foreground) or the top class confidence is below <confidence_min>.
     int recognize(cv::Mat const& cell, double confidence_min = 0.0) const;
@@ -33,6 +40,25 @@ public:
     // calibrating a confidence_min threshold on a corpus of cells.
     int recognize_ex(cv::Mat const& cell, double& confidence) const;
 
+    // Returns the number of digits in the cell: 1 or 2, as classified by the
+    // counter model (argmax of 2 logits -> 1 or 2). Returns -1 if no counter
+    // model is configured or the cell has no reliable foreground. The returned
+    // label is the raw argmax; it does not apply a confidence gate.
+    int digit_count(cv::Mat const& cell) const;
+
+    // Like digit_count(), but also reports the softmax probability of the
+    // two-digit class in <prob_two>. Returns -1 when no counter model is set or
+    // the cell has no reliable foreground.
+    int digit_count_ex(cv::Mat const& cell, double& prob_two) const;
+
+    // Reads a cell that holds two digits (counter model says digit_count == 2):
+    // splits the warped cell into left/right halves, upscales each by
+    // <upscale> with INTER_CUBIC (so each half is large enough for reliable
+    // single-digit recognition), reads each half, and returns left*10+right.
+    // Returns -1 when the counter model does not flag the cell as two digits,
+    // either half cannot be read reliably, or the composed value leaves [0, 99].
+    int recognize_two_digits(cv::Mat const& cell, int upscale = 3) const;
+
     // Normalizes a raw cell image into the 1x1x28x28 whitened input blob the
     // MNIST model expects. White digit on black, normalized (x/255 - 0.1307)
     // / 0.3081. Returns false if the cell has no reliable foreground.
@@ -40,6 +66,7 @@ public:
 
 private:
     mutable cv::dnn::Net net_;
+    mutable cv::dnn::Net counter_net_;
 };
 
 }
