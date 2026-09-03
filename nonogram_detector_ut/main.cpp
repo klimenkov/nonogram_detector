@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cassert>
+#include <cmath>
 #include <cstdlib>
 #include <iostream>
 
@@ -7,6 +8,7 @@
 
 #include "cross_locs_detector.hpp"
 #include "image_operations.hpp"
+#include "masks.hpp"
 
 
 // Defined in digit_recognizer_test.cpp
@@ -138,6 +140,75 @@ void test_refine_peak_loc_fallback_on_boundary()
     std::cout << "  [ok] refined=" << refined << "\n";
 }
 
+// The real detection path rather than an ideal quadratic: a synthetic
+// thresholded binary image (CV_8U, 0 background / 1 foreground) with a
+// 2px-thick horizontal band (rows [29,30]) and a 2px-thick vertical band
+// (cols [24,25]). The true intersection center sits at a half-pixel offset:
+// (24.5, 29.5). find_kernel_loc with the plain cross mask (the same call
+// shape the BFS in get_cross_locs_map uses, default anchor = kernel center)
+// must locate the cross, and the paraboloid refinement on the filter2D
+// response must recover the subpixel center. Measured: the response peaks
+// flat (1.0) over the 2x2 plateau around the true center and the fit lands
+// exactly on (24.5, 29.5); the integer peak (24,29) is displaced by ~0.5 px.
+bool test_find_kernel_loc_subpixel_cross()
+{
+    std::cout << "case: find_kernel_loc recovers subpixel cross center\n";
+
+    cv::Mat img(60, 60, CV_8U, cv::Scalar(0));
+    img(cv::Rect(0, 29, img.cols, 2)) = 1;   // horizontal band, rows [29,30]
+    img(cv::Rect(24, 0, 2, img.rows)) = 1;   // vertical band, cols [24,25]
+
+    int const mask_length = 15;   // odd, as get_mask_cross requires
+    cv::Mat mask_cross;
+    int mask_cross_perimeter;
+    std::tie(mask_cross, mask_cross_perimeter) = ng::get_mask_cross(mask_length);
+
+    bool found = false;
+    cv::Point2f refined(-1.0f, -1.0f);
+    std::tie(found, refined) = ng::find_kernel_loc(
+        img, mask_cross, mask_cross_perimeter, 0.5, cv::Point(-1, -1));
+
+    cv::Point2f const true_center(24.5f, 29.5f);
+    if (!found)
+    {
+        std::cerr << "  [FAIL] cross not found\n";
+        return false;
+    }
+
+    float const tolerance = 0.01f;
+    if (std::fabs(refined.x - true_center.x) > tolerance ||
+        std::fabs(refined.y - true_center.y) > tolerance)
+    {
+        std::cerr << "  [FAIL] refined=" << refined << " expected ~"
+                  << true_center << " (tolerance " << tolerance << ")\n";
+        return false;
+    }
+
+    std::cout << "  [ok] found=" << found << " refined=" << refined << "\n";
+    return true;
+}
+
+// A flat response — peak and all four neighbors equal — has a zero second
+// difference; refine_peak_loc must return the integer peak unchanged (the
+// denom <= 1e-6 guard).
+bool test_refine_peak_loc_flat_response()
+{
+    std::cout << "case: refine_peak_loc returns int peak on flat response\n";
+
+    cv::Mat resp(21, 31, CV_32F, cv::Scalar(1.0f));
+    cv::Point const int_peak(15, 10);   // interior, all four neighbors present
+    cv::Point2f const refined = ng::refine_peak_loc(resp, int_peak);
+
+    if (refined != cv::Point2f(15.0f, 10.0f))
+    {
+        std::cerr << "  [FAIL] refined=" << refined << " expected (15,10)\n";
+        return false;
+    }
+
+    std::cout << "  [ok] refined=" << refined << "\n";
+    return true;
+}
+
 }
 
 int main()
@@ -183,6 +254,12 @@ int main()
         std::cout << "case: subpixel peak refinement\n";
         test_refine_peak_loc_x();
         test_refine_peak_loc_fallback_on_boundary();
+    }
+
+    {
+        std::cout << "case: end-to-end subpixel cross detection\n";
+        if (!test_find_kernel_loc_subpixel_cross()) ++failures;
+        if (!test_refine_peak_loc_flat_response()) ++failures;
     }
 
     failures += run_digit_recognizer_tests();

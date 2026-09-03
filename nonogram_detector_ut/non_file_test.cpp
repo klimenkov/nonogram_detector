@@ -1,3 +1,4 @@
+#include <cmath>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -82,10 +83,11 @@ void test_round_trip()
     std::cout << "case: write_non_file custom block round-trip\n";
 
     // Build a small fake Detection.main: 3x4 intersections (2x3 cell grid).
+    // Fractional coordinates exercise the subpixel (CV_32FC2) round-trip.
     cv::Mat main_locs(3, 4, CV_32FC2);
     for (int r = 0; r < 3; ++r)
         for (int c = 0; c < 4; ++c)
-            main_locs.at<cv::Point2f>(r, c) = cv::Point2f(100.0f + c * 50.0f, 200.0f + r * 60.0f);
+            main_locs.at<cv::Point2f>(r, c) = cv::Point2f(100.5f + c * 50.25f, 200.75f + r * 60.5f);
 
     ng::SolutionGrid solution = {
         {1, 0, 1},
@@ -136,7 +138,10 @@ void test_round_trip()
         {
             cv::Point2f const expected = main_locs.at<cv::Point2f>(r, c);
             cv::Point2f const actual = block.cells[r * 4 + c];
-            if (actual != expected)
+            // Two-decimal text round-trip: allow a half-ulp of the printed
+            // precision.
+            if (std::fabs(actual.x - expected.x) > 0.005f ||
+                std::fabs(actual.y - expected.y) > 0.005f)
             {
                 std::string name = "cell[" + std::to_string(r) + "][" +
                                    std::to_string(c) + "] round-trips";

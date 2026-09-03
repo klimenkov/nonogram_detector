@@ -118,9 +118,9 @@ API.
 (`p1.x < p2.x`, ties broken by `y`). It is used so `cv::Point` can be a key in
 `std::map` / `std::set`.
 
-Note: `cv::Mat` of type `CV_32SC2` stores each element as a 2×int32 tuple, which
-`cv::Mat::at<cv::Point>` treats as a `cv::Point`. The code relies on this to store
-grid cross locations in a dense matrix.
+Note: `cv::Mat` of type `CV_32FC2` stores each element as a 2×float tuple, which
+`cv::Mat::at<cv::Point2f>` treats as a `cv::Point2f`. The code relies on this to
+store subpixel grid cross locations in a dense matrix.
 
 ### 3.0b `ClueCorrector` consistency layer (`nonogram_solver`)
 
@@ -181,11 +181,16 @@ Free functions:
   0/1 values.
 - `get_roi(center, size)` — a `cv::Rect` centered on a point.
 - `is_inside(rect, sub_rect)` — containment check.
+- `refine_peak_loc(image_filtered, peak)` — fits a 1-D parabola along x and y
+  through the integer peak and its neighbors in the filtered response,
+  returning a subpixel `cv::Point2f`; falls back to the integer peak when the
+  peak sits at the response border or the response is flat.
 - `find_kernel_loc` (x2) — convolves a 0/1 image with a kernel via
   `cv::filter2D`, normalizes by the mask perimeter, and reports the peak via
-  `minMaxLoc`. A match is successful when the normalized peak exceeds
-  `similarity_ratio_min`. The ROI overload clips to the image and returns
-  coordinates offset back into the full image.
+  `minMaxLoc`, refined to subpixel precision with `refine_peak_loc`. A match is
+  successful when the normalized peak exceeds `similarity_ratio_min`. The ROI
+  overload clips to the image and returns coordinates offset back into the
+  full image.
 - `get_cell_warped_images_vector(image, cross_locs)` — from a `cross_locs`
   matrix, builds each cell's four corner points, computes a perspective
   transform, and warps every cell to a fixed 20×20 patch. Returned as a 2D
@@ -225,8 +230,9 @@ The core is `CrossLocsDetector::detect`:
    (`get_cross_locs_map`) outward. For each grid index a predicted cross location
    is computed from its already-found neighbor (`cross_loc + delta`), then
    re-located precisely with `find_kernel_loc` using the cross `mask_cross`
-   within a sized ROI. The result is a sparse `std::map<cv::Point, cv::Point>`
-   keyed by grid indices. The main map uses
+   within a sized ROI (each match refined to subpixel precision). The result
+   is a sparse `std::map<cv::Point, cv::Point2f>` keyed by grid indices. The
+   main map uses
    `mask_cross(cell_side_length*1.5 odd, line_width/2)` (margin version) and
    4-directional deltas.
 4. **Derive clue regions** — `get_cross_locs_top_mat` / `get_cross_locs_left_mat`
@@ -234,22 +240,27 @@ The core is `CrossLocsDetector::detect`:
    flood-fill `get_cross_locs_map` with the plain `get_mask_cross` and
    3-directional deltas, growing the clue strips.
 5. **To dense matrix** — `convert_to_mat` maps the sparse index→point map onto a
-   dense `CV_32SC2` matrix (size = bounding box + 1), filling gaps with
-   `(-1, -1)`.
+   dense `CV_32FC2` matrix (size = bounding box + 1), filling gaps with
+   `cv::Point2f(-1, -1)`.
 6. **Pad & augment** — each region is padded by one row/column (so the perimeter
-   crossing exists) and `augment` fills any `(-1, -1)` `cross_loc` by linear
-   extrapolation from already-known neighbors (`cross_loc + cell_side_length *
-   direction`, averaging when multiple). This fills bases/missing cells.
-7. **Rescale** — results are divided by `scale` to translate back to the
-   original full-resolution image coordinate space.
+   crossing exists) and `augment` fills any `cv::Point2f(-1, -1)` `cross_loc` by
+   linear extrapolation from already-known neighbors (`cross_loc +
+   cell_side_length * direction`, averaging when multiple). This fills
+   bases/missing cells.
+7. **Rescale** — `scale_cross_locs_mat` divides each location by `scale` to
+   translate back to the original full-resolution image coordinate space,
+   preserving `cv::Point2f(-1, -1)` sentinels; the float coordinates survive
+   the mapping without truncation.
 8. **Return** — the three `cross_locs` matrices plus the found-flag.
 
 ## 5. Data representation: `cross_locs`
 
-The central concept. Each `cross_locs_*` is a `CV_32SC2` `cv::Mat` where element
-`(x, y)` stores the pixel position of the grid intersection at column `x`, row `y`
-of that region. A value of `cv::Point(-1, -1)` means *not located* (before
-augmentation) / *empty padding* (after).
+The central concept. Each `cross_locs_*` is a `CV_32FC2` `cv::Mat` where element
+`(x, y)` stores the subpixel position (`cv::Point2f`, refined by a paraboloid
+fit — `refine_peak_loc` — on the `filter2D` peak inside `find_kernel_loc`) of
+the grid intersection at column `x`, row `y` of that region. A value of
+`cv::Point2f(-1, -1)` means *not located* (before augmentation) / *empty
+padding* (after).
 
 The three matrices share an identical element type and differ only by region:
 
@@ -321,9 +332,10 @@ not an automated test. Parameter behavior is now validated by the synthetic
   CLI/argument input; the top-level `cmake_minimum_required` is 2.8 (very old).
 - **Tuple return instead of a result type** — `detect` returns a 4-tuple; a small
   struct would be self-documenting and less error-prone.
-- **Representation coupling** — correctness relies on `CV_32SC2` ↔ `cv::Point`
-  aliasing and on the invariant that `indices_init[i]` corresponds to
-  `cross_locs_init[i]` (documented in the code comment but not enforced).
+- **Representation coupling** — correctness relies on `CV_32FC2` ↔
+  `cv::Point2f` aliasing and on the invariant that `indices_init[i]`
+  corresponds to `cross_locs_init[i]` (documented in the code comment but not
+  enforced).
 - **BFS termination** — `get_cross_locs_map` can only expand to grid indices
   reachable via known deltas; if a neighbor has no valid ROI or no mask match the
   branch stops (which is why `augment` later fills gaps by extrapolation).
