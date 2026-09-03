@@ -2,7 +2,7 @@ set(SOURCES
 	"main.cpp"
 	"digit_recognizer_test.cpp")
 if(NG_ENABLE_SOLVER)
-	list(APPEND SOURCES "solver_test.cpp" "clue_corrector_test.cpp")
+	list(APPEND SOURCES "solver_test.cpp" "clue_corrector_test.cpp" "non_file_test.cpp")
 endif()
 
 add_executable(nonogram_detector_ut ${SOURCES})

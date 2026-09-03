@@ -14,6 +14,7 @@ int run_digit_recognizer_tests();
 #ifdef NG_ENABLE_SOLVER
 int run_solver_tests();   // defined in solver_test.cpp
 int run_clue_corrector_tests();   // defined in clue_corrector_test.cpp
+int run_non_file_tests();   // defined in non_file_test.cpp
 #endif
 
 
@@ -140,6 +141,7 @@ int main()
 #ifdef NG_ENABLE_SOLVER
     failures += run_solver_tests();
     failures += run_clue_corrector_tests();
+    failures += run_non_file_tests();
 #endif
 
     if (failures > 0)
