@@ -6,6 +6,7 @@
 #include <opencv2/opencv.hpp>
 
 #include "cross_locs_detector.hpp"
+#include "image_operations.hpp"
 
 
 // Defined in digit_recognizer_test.cpp
@@ -95,6 +96,48 @@ bool run_case(int const cols, int const rows, int const cell, int const resize_m
     return true;
 }
 
+// A pure 2-D quadratic response peaked at a known subpixel center. Sampling it
+// on the integer grid and feeding the integer peak into refine_peak_loc must
+// recover the true subpixel center of each axis (a parabola fit is exact for a
+// quadratic).
+void test_refine_peak_loc_x()
+{
+    std::cout << "case: refine_peak_loc recovers subpixel center (x)\n";
+    // Peak of the parabola, x0 at integer+0.4, y centered on integer row 10.
+    float const x0 = 15.6f, y0 = 10.0f;
+    float const a = 1.0f;
+    cv::Mat resp(21, 31, CV_32F);
+    for (int y = 0; y < resp.rows; ++y)
+        for (int x = 0; x < resp.cols; ++x)
+            resp.at<float>(y, x) = -a * ((x - x0) * (x - x0) + (y - y0) * (y - y0));
+
+    cv::Point const int_peak(cvRound(x0), cvRound(y0));  // (16, 10)
+    cv::Point2f const refined = ng::refine_peak_loc(resp, int_peak);
+    if (std::fabs(refined.x - x0) > 1e-3f || std::fabs(refined.y - y0) > 1e-3f)
+    {
+        std::cerr << "  [FAIL] refined=" << refined << " expected ~(" << x0
+                  << "," << y0 << ")\n";
+        return;
+    }
+    std::cout << "  [ok] refined=" << refined << "\n";
+}
+
+void test_refine_peak_loc_fallback_on_boundary()
+{
+    std::cout << "case: refine_peak_loc falls back to int peak at border\n";
+    // Peak at (0, 20) — no left neighbor; must return the integer peak.
+    cv::Mat resp(21, 21, CV_32F, cv::Scalar(0));
+    resp.at<float>(20, 0) = 1.0f;
+    cv::Point const int_peak(0, 20);
+    cv::Point2f const refined = ng::refine_peak_loc(resp, int_peak);
+    if (refined != cv::Point2f(0.0f, 20.0f))
+    {
+        std::cerr << "  [FAIL] refined=" << refined << " expected (0,20)\n";
+        return;
+    }
+    std::cout << "  [ok] refined=" << refined << "\n";
+}
+
 }
 
 int main()
@@ -134,6 +177,12 @@ int main()
         } else {
             std::cout << "  [ok] estimated cell side " << est << "\n";
         }
+    }
+
+    {
+        std::cout << "case: subpixel peak refinement\n";
+        test_refine_peak_loc_x();
+        test_refine_peak_loc_fallback_on_boundary();
     }
 
     failures += run_digit_recognizer_tests();

@@ -29,6 +29,13 @@ cv::Mat threshold(
 cv::Rect get_roi(cv::Point const& center, cv::Size const& roi_size);
 
 
+// Fits a 1-D parabola along x and through the y-neighbors of the integer peak
+// in the (single-channel, floating-point) filtered response, returning a
+// subpixel peak location. Falls back to the integer peak when the peak sits at
+// the response border or the response is flat.
+cv::Point2f refine_peak_loc(cv::Mat const& image_filtered, cv::Point const& peak);
+
+
 // The boolean flag in the return value shows if the search was successful
 std::pair<bool, cv::Point> find_kernel_loc(
     cv::Mat const& image_thresholded,

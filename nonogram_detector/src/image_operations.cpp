@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cmath>
 #include <iterator>
 #include <numeric>
 #include <queue>
@@ -50,6 +51,48 @@ cv::Mat threshold(
 cv::Rect get_roi(cv::Point const& center, cv::Size const& roi_size)
 {
     return cv::Rect(center - cv::Point(roi_size / 2), roi_size);
+}
+
+
+cv::Point2f refine_peak_loc(cv::Mat const& image_filtered, cv::Point const& peak)
+{
+    auto const x = peak.x;
+    auto const y = peak.y;
+
+    // Need the four orthogonal neighbors present.
+    if (x - 1 < 0 || x + 1 >= image_filtered.cols ||
+        y - 1 < 0 || y + 1 >= image_filtered.rows)
+    {
+        return cv::Point2f(static_cast<float>(x), static_cast<float>(y));
+    }
+
+    auto const f = [&image_filtered](int px, int py) {
+        return image_filtered.at<float>(py, px);
+    };
+
+    // 1-D parabola fit along x: offset where the quadratic peaks.
+    float x_offset = 0.0f;
+    {
+        auto const f_m1 = f(x - 1, y);
+        auto const f_0  = f(x,     y);
+        auto const f_p1 = f(x + 1, y);
+        auto const denom = f_m1 - 2.0f * f_0 + f_p1;
+        if (std::fabs(denom) > 1e-6f)
+            x_offset = (f_m1 - f_p1) / (2.0f * denom);
+    }
+
+    float y_offset = 0.0f;
+    {
+        auto const f_m1 = f(x, y - 1);
+        auto const f_0  = f(x, y);
+        auto const f_p1 = f(x, y + 1);
+        auto const denom = f_m1 - 2.0f * f_0 + f_p1;
+        if (std::fabs(denom) > 1e-6f)
+            y_offset = (f_m1 - f_p1) / (2.0f * denom);
+    }
+
+    return cv::Point2f(static_cast<float>(x) + x_offset,
+                       static_cast<float>(y) + y_offset);
 }
 
 
