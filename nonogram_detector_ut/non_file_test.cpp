@@ -1,6 +1,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -32,7 +33,7 @@ struct NonCustomBlock
     std::string source;
     int grid_rows = 0;
     int grid_cols = 0;
-    std::vector<cv::Point> cells;  // flattened row-major
+    std::vector<cv::Point2f> cells;  // flattened row-major
 };
 
 NonCustomBlock parse_non_custom_block(std::filesystem::path const& path)
@@ -64,8 +65,8 @@ NonCustomBlock parse_non_custom_block(std::filesystem::path const& path)
                 while (iss >> token)
                 {
                     auto const comma = token.find(',');
-                    int x = std::atoi(token.substr(0, comma).c_str());
-                    int y = std::atoi(token.substr(comma + 1).c_str());
+                    float x = std::stof(token.substr(0, comma));
+                    float y = std::stof(token.substr(comma + 1));
                     block.cells.emplace_back(x, y);
                 }
             }
@@ -81,10 +82,10 @@ void test_round_trip()
     std::cout << "case: write_non_file custom block round-trip\n";
 
     // Build a small fake Detection.main: 3x4 intersections (2x3 cell grid).
-    cv::Mat main_locs(3, 4, CV_32SC2);
+    cv::Mat main_locs(3, 4, CV_32FC2);
     for (int r = 0; r < 3; ++r)
         for (int c = 0; c < 4; ++c)
-            main_locs.at<cv::Point>(r, c) = cv::Point(100 + c * 50, 200 + r * 60);
+            main_locs.at<cv::Point2f>(r, c) = cv::Point2f(100.0f + c * 50.0f, 200.0f + r * 60.0f);
 
     ng::SolutionGrid solution = {
         {1, 0, 1},
@@ -115,8 +116,8 @@ void test_round_trip()
             for (int c = 0; c < main_locs.cols; ++c)
             {
                 if (c) out << " ";
-                cv::Point const pt = main_locs.at<cv::Point>(r, c);
-                out << pt.x << "," << pt.y;
+                cv::Point2f const pt = main_locs.at<cv::Point2f>(r, c);
+                out << std::fixed << std::setprecision(2) << pt.x << "," << pt.y;
             }
             out << "\n";
         }
@@ -133,8 +134,8 @@ void test_round_trip()
     {
         for (int c = 0; c < 4; ++c)
         {
-            cv::Point const expected = main_locs.at<cv::Point>(r, c);
-            cv::Point const actual = block.cells[r * 4 + c];
+            cv::Point2f const expected = main_locs.at<cv::Point2f>(r, c);
+            cv::Point2f const actual = block.cells[r * 4 + c];
             if (actual != expected)
             {
                 std::string name = "cell[" + std::to_string(r) + "][" +

@@ -1,6 +1,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -156,8 +157,8 @@ void write_non_file(
             for (int c = 0; c < detection_main.cols; ++c)
             {
                 if (c) out << " ";
-                cv::Point const pt = detection_main.at<cv::Point>(r, c);
-                out << pt.x << "," << pt.y;
+                cv::Point2f const pt = detection_main.at<cv::Point2f>(r, c);
+                out << std::fixed << std::setprecision(2) << pt.x << "," << pt.y;
             }
             out << "\n";
         }
@@ -197,7 +198,7 @@ bool render_nonogram_overlay(
     // Fill solved cells (solution[r][c] == 1) with a translucent color onto a
     // single overlay, then blend it onto the result once. Cell (r, c) is
     // bounded by intersections at (r,c), (r,c+1), (r+1,c+1), (r+1,c).
-    cv::Scalar const fill_color(255, 180, 0, 128);  // BGR
+    cv::Scalar const fill_color(60, 20, 10, 255);  // BGR, very dark blue
 
     cv::Mat overlay = result.clone();
     for (int r = 0; r < H; ++r)
@@ -208,15 +209,15 @@ bool render_nonogram_overlay(
                 continue;
 
             std::vector<cv::Point> cell_poly(4);
-            cell_poly[0] = main_locs.at<cv::Point>(r,     c);      // top-left
-            cell_poly[1] = main_locs.at<cv::Point>(r,     c + 1);  // top-right
-            cell_poly[2] = main_locs.at<cv::Point>(r + 1, c + 1);  // bottom-right
-            cell_poly[3] = main_locs.at<cv::Point>(r + 1, c);      // bottom-left
+            cell_poly[0] = cv::Point(main_locs.at<cv::Point2f>(r,     c));      // top-left
+            cell_poly[1] = cv::Point(main_locs.at<cv::Point2f>(r,     c + 1));  // top-right
+            cell_poly[2] = cv::Point(main_locs.at<cv::Point2f>(r + 1, c + 1));  // bottom-right
+            cell_poly[3] = cv::Point(main_locs.at<cv::Point2f>(r + 1, c));      // bottom-left
 
             cv::fillConvexPoly(overlay, cell_poly, fill_color);
         }
     }
-    cv::addWeighted(overlay, 0.35, result, 0.65, 0, result);
+    cv::addWeighted(overlay, 0.70, result, 0.30, 0, result);
 
     // Draw grid lines through all intersections for visibility.
     cv::Scalar const line_color(0, 0, 0);  // black
@@ -228,8 +229,8 @@ bool render_nonogram_overlay(
         for (int c = 0; c < main_locs.cols - 1; ++c)
         {
             cv::line(result,
-                     main_locs.at<cv::Point>(r, c),
-                     main_locs.at<cv::Point>(r, c + 1),
+                     main_locs.at<cv::Point2f>(r, c),
+                     main_locs.at<cv::Point2f>(r, c + 1),
                      line_color, line_thickness);
         }
     }
@@ -240,8 +241,8 @@ bool render_nonogram_overlay(
         for (int r = 0; r < main_locs.rows - 1; ++r)
         {
             cv::line(result,
-                     main_locs.at<cv::Point>(r, c),
-                     main_locs.at<cv::Point>(r + 1, c),
+                     main_locs.at<cv::Point2f>(r, c),
+                     main_locs.at<cv::Point2f>(r + 1, c),
                      line_color, line_thickness);
         }
     }
