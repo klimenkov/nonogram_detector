@@ -7,6 +7,7 @@
 #include <opencv2/opencv.hpp>
 
 #include "cross_locs_detector.hpp"
+#include "decode.hpp"
 #include "digit_recognizer.hpp"
 #include "grid_smooth_fit.hpp"
 #include "image_operations.hpp"
@@ -595,6 +596,47 @@ bool test_prepare_input_rejects_empty()
     return true;
 }
 
+bool test_guard_implausible_split_falls_back()
+{
+    // Aligned 42 on a 30-wide puzzle: implausible -> whole-cell read.
+    int const d = ng::resolve_two_digit(
+        42, 7, 0.95, 0.9, 0.9, 30, 0.3, 0.9);
+    if (d != 7)
+    {
+        std::cout << "FAIL: implausible split did not fall back (got " << d << ")\n";
+        return false;
+    }
+    return true;
+}
+
+bool test_guard_whole_cell_wins_on_counter_fp()
+{
+    // Counter FP: single "5" split confidently wrongly? -> halves not both
+    // confident (conf < kSplitConfidenceMin=0.3) but whole-cell is a high-conf 5
+    // -> prefer whole.
+    int const d = ng::resolve_two_digit(
+        18, 5, 0.95, 0.15, 0.15, 30, 0.3, 0.9);
+    if (d != 5)
+    {
+        std::cout << "FAIL: high-conf whole-cell not preferred (got " << d << ")\n";
+        return false;
+    }
+    return true;
+}
+
+bool test_guard_genuine_two_digit_kept()
+{
+    // Genuine 13: whole-cell read is low-conf garbage; halves confident.
+    int const d = ng::resolve_two_digit(
+        13, 1, 0.4, 0.9, 0.9, 30, 0.3, 0.9);
+    if (d != 13)
+    {
+        std::cout << "FAIL: genuine two-digit split not kept (got " << d << ")\n";
+        return false;
+    }
+    return true;
+}
+
 int main()
 {
     int failures = 0;
@@ -654,6 +696,9 @@ int main()
         if (!test_prepare_input_accepts_thin_digit()) ++failures;
         if (!test_prepare_input_rejects_speck()) ++failures;
         if (!test_prepare_input_rejects_empty()) ++failures;
+        if (!test_guard_implausible_split_falls_back()) ++failures;
+        if (!test_guard_whole_cell_wins_on_counter_fp()) ++failures;
+        if (!test_guard_genuine_two_digit_kept()) ++failures;
     }
 
     failures += run_digit_recognizer_tests();

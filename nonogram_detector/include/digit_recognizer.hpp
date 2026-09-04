@@ -63,6 +63,13 @@ public:
     int recognize_two_digits(cv::Mat const& cell, int count, int upscale = 3,
                              double confidence_min = 0.0) const;
 
+    // Like recognize_two_digits(), but reports the per-half softmax confidences
+    // (conf_l / conf_r; 0.0 for a rejected/empty half) and each half must clear
+    // <split_conf_min>. Returns the composed value (or -1 if either half fails).
+    int recognize_two_digits_ex(cv::Mat const& cell, int count, int upscale,
+                                double split_conf_min,
+                                double& conf_l, double& conf_r) const;
+
     // Normalizes a raw cell image into the 1x1x28x28 whitened input blob the
     // MNIST model expects. White digit on black, normalized (x/255 - 0.1307)
     // / 0.3081. Returns false if the cell has no reliable foreground.

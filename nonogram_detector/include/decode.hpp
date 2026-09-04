@@ -39,4 +39,12 @@ bool decode_clues(
     DigitRecognizer const& recognizer,
     ClueGrid& out);
 
+// Guard decision for a counter-flagged two-digit cell. <split> is the composed
+// split read (-1 if a half failed), <whole>/<whole_conf> the whole-cell read.
+// Returns the chosen digit (or -1). Exposed for unit testing.
+int resolve_two_digit(int split, int whole, double whole_conf,
+                      double conf_l, double conf_r,
+                      int max_clue,
+                      double split_conf_min, double whole_high_conf_min);
+
 }

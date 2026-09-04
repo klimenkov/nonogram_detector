@@ -182,14 +182,16 @@ int DigitRecognizer::digit_count_ex(cv::Mat const& cell, double& prob_two) const
     return max_loc.x + 1; // class 0 -> 1 digit, class 1 -> 2 digits
 }
 
-int DigitRecognizer::recognize_two_digits(
+int DigitRecognizer::recognize_two_digits_ex(
     cv::Mat const& cell,
     int count,
     int upscale,
-    double confidence_min) const
+    double split_conf_min,
+    double& conf_l,
+    double& conf_r) const
 {
-    // The caller already ran digit_count(); trust its verdict instead of
-    // re-running the counter-model forward pass on the same cell.
+    conf_l = 0.0;
+    conf_r = 0.0;
     if (count != 2)
         return -1;
 
@@ -205,8 +207,17 @@ int DigitRecognizer::recognize_two_digits(
     cv::resize(left, left_up, cv::Size(), upscale, upscale, cv::INTER_CUBIC);
     cv::resize(right, right_up, cv::Size(), upscale, upscale, cv::INTER_CUBIC);
 
-    int const l = recognize(left_up, confidence_min);
-    int const r = recognize(right_up, confidence_min);
+    int l = -1, r = -1;
+    double cl = 0.0, cr = 0.0;
+    l = recognize_ex(left_up, cl);
+    if (l >= 0 && cl < split_conf_min)
+        l = -1;
+    r = recognize_ex(right_up, cr);
+    if (r >= 0 && cr < split_conf_min)
+        r = -1;
+    conf_l = cl;
+    conf_r = cr;
+
     if (l < 0 || r < 0)
         return -1;
 
@@ -214,6 +225,16 @@ int DigitRecognizer::recognize_two_digits(
     if (value > 99)
         return -1;
     return value;
+}
+
+int DigitRecognizer::recognize_two_digits(
+    cv::Mat const& cell,
+    int count,
+    int upscale,
+    double confidence_min) const
+{
+    double cl = 0.0, cr = 0.0;
+    return recognize_two_digits_ex(cell, count, upscale, confidence_min, cl, cr);
 }
 
 }
