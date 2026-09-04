@@ -15,6 +15,7 @@
 #ifdef NG_ENABLE_SOLVER
 #	include "solver.hpp"
 #	include "clue_corrector.hpp"
+#	include "non_file.hpp"
 #endif
 
 
@@ -79,93 +80,8 @@ void print_solution_grid(std::vector<std::vector<int>> const& solution)
     }
 }
 
-// Writes the puzzle in webpbn ".non" text format: the row/column clue lists
-// (comma-separated) plus a "goal" line, the rows-major 0/1 bitmap of the solved
-// grid.
-void write_non_file(
-    std::filesystem::path const& path,
-    ng::ClueConstraints const& constraints,
-    ng::SolutionGrid const& solution,
-    cv::Mat const& detection_main,
-    std::filesystem::path const& image_path)
-{
-    std::ofstream out(path);
-    if (!out)
-    {
-        std::cerr << "write_non_file: cannot open " << path << "\n";
-        return;
-    }
-    std::size_t const h = constraints.rows.size();
-    std::size_t const w = constraints.cols.size();
-
-    out << "title \"nonogram_detector\"\n";
-    out << "width " << w << "\n";
-    out << "height " << h << "\n\n";
-
-    auto const clues = [](std::vector<int> const& line) {
-        std::string s;
-        for (std::size_t i = 0; i < line.size(); ++i)
-        {
-            if (i) s += ",";
-            s += std::to_string(line[i]);
-        }
-        return s;
-    };
-
-    out << "rows\n";
-    for (auto const& line : constraints.rows)
-    {
-        std::string const s = clues(line);
-        out << (s.empty() ? "0" : s.c_str()) << "\n";
-    }
-    out << "\n";
-
-    out << "columns\n";
-    for (auto const& line : constraints.cols)
-    {
-        std::string const s = clues(line);
-        out << (s.empty() ? "0" : s.c_str()) << "\n";
-    }
-    out << "\n";
-
-    if (!solution.empty())
-    {
-        std::string goal;
-        for (auto const& row : solution)
-            for (int const cell : row)
-                goal += (cell ? '1' : '0');
-        out << "goal \"" << goal << "\"\n";
-    }
-
-    // Custom block: source photo reference + grid geometry.
-    // Guard against empty detection (e.g. exported from a non-detected image).
-    if (!detection_main.empty())
-    {
-        // #source: relative path from the .non file's directory to the photo.
-        std::error_code ec;
-        auto rel = std::filesystem::relative(image_path, path.parent_path(), ec);
-        auto const source_path = (!ec) ? rel : image_path;
-        out << "#source: " << source_path.string() << "\n";
-
-        // #grid: intersection-matrix dimensions (rows x cols).
-        out << "#grid: " << detection_main.rows << "x" << detection_main.cols << "\n";
-
-        // #cells: flattened row-major intersection points, one row per line.
-        out << "#cells:\n";
-        for (int r = 0; r < detection_main.rows; ++r)
-        {
-            for (int c = 0; c < detection_main.cols; ++c)
-            {
-                if (c) out << " ";
-                cv::Point2f const pt = detection_main.at<cv::Point2f>(r, c);
-                out << std::fixed << std::setprecision(2) << pt.x << "," << pt.y;
-            }
-            out << "\n";
-        }
-    }
-
-    std::cout << "wrote .non: " << path << "\n";
-}
+// Writes the puzzle in webpbn ".non" text format (see ng::write_non_file in
+// nonogram_solver/non_file.hpp).
 
 // Renders the solved nonogram overlay onto the original photo: filled cells
 // for solution[r][c]==1, thin grid lines connecting all intersections.
@@ -440,8 +356,8 @@ int main(int argc, char** argv)
                       << "\n";
             print_solution_grid(result.solution);
             if (char const* export_path = std::getenv("NG_EXPORT_NON"))
-                write_non_file(export_path, constraints, result.solution,
-                               detection.main, image_path);
+                ng::write_non_file(export_path, constraints, result.solution,
+                                   detection.main, image_path);
             if (char const* overlay_path = std::getenv("NG_EXPORT_OVERLAY"))
             {
                 if (render_nonogram_overlay(image, detection.main,
