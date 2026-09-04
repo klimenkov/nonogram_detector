@@ -3,6 +3,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -169,6 +170,105 @@ bool render_nonogram_overlay(
     return ok;
 }
 
+
+// Runs the clue-correction + solve + export pipeline on the decoded clues.
+// Both clue strips are required: rows come from the left clues and columns
+// from the top clues. decode_clues succeeds when either strip decoded (so
+// partial clues still print in main), but solving with a strip missing would
+// only surface as an opaque "invalid constraints" solver failure, so check
+// up front and say why instead.
+void solve_and_export(
+    ng::ClueGrid const& clues,
+    cv::Mat const& image,
+    cv::Mat const& main_locs,
+    std::string const& image_path)
+{
+    if (clues.top.empty() || clues.left.empty())
+    {
+        std::cout << "cannot solve: incomplete clue strips (need both top and left)\n";
+        return;
+    }
+
+    // Grid dimensions: H rows from the left strip, W columns from the top
+    // strip. Each left line maps to one grid row (fits grid width W); the
+    // top strip is transposed so each grid column maps to one clue line
+    // (fits grid height H).
+    std::size_t const H = clues.left.size();
+    std::size_t const W = clues.top[0].size();
+
+    // Convert the decoded strips into the corrector's cell grids: rows =
+    // left lines (as decoded), cols = transposed top lines. Both go through
+    // the same clueline helper so the digit_count fallback (no valid counter
+    // entry -> 1 for a read digit, 0 for an empty cell) is applied
+    // identically to rows and columns.
+    auto const clueline = [](std::vector<int> const& digits,
+                             std::vector<int> const& counts) {
+        std::vector<ng::ClueCell> line(digits.size());
+        for (std::size_t i = 0; i < digits.size(); ++i)
+        {
+            line[i].digit = digits[i];
+            int const c = (i < counts.size()) ? counts[i] : 0;
+            line[i].digit_count =
+                (c >= 1 && c <= 2) ? c : ((digits[i] < 0) ? 0 : 1);
+        }
+        return line;
+    };
+    ng::DecodedCells decoded;
+    decoded.rows.assign(H, {});
+    for (std::size_t r = 0; r < H; ++r)
+        decoded.rows[r] = clueline(clues.left[r], clues.left_count[r]);
+    decoded.cols.assign(W, {});
+    for (std::size_t c = 0; c < W; ++c)
+    {
+        std::vector<int> digits, counts;
+        for (std::size_t r = 0; r < clues.top.size() && c < clues.top[r].size(); ++r)
+        {
+            digits.push_back(clues.top[r][c]);
+            counts.push_back(clues.top_count[r][c]);
+        }
+        decoded.cols[c] = clueline(digits, counts);
+    }
+
+    // Structural consistency + correction layer between decode and solve.
+    ng::ConsistencyReport rep;
+    auto const corrected = ng::correct_clues(decoded, static_cast<int>(W),
+                                             static_cast<int>(H), rep);
+    print_consistency_report(rep);
+
+    // Build solver constraints from the corrected cells: re-group each
+    // clue line into numbers (multi-digit cells concatenate).
+    ng::ClueConstraints constraints;
+    constraints.rows.assign(H, {});
+    for (std::size_t r = 0; r < H; ++r)
+        constraints.rows[r] = ng::group_clue_line(corrected.rows[r]);
+    constraints.cols.assign(W, {});
+    for (std::size_t c = 0; c < W; ++c)
+        constraints.cols[c] = ng::group_clue_line(corrected.cols[c]);
+
+    auto const result = ng::solve_nonogram(constraints);
+    std::cout << "solver: " << result.message << "\n";
+    if (result.solved)
+    {
+        std::cout << "solutions=" << result.solution_count
+                  << " line_solvable=" << (result.line_solvable ? "true" : "false")
+                  << "\n";
+        print_solution_grid(result.solution);
+        if (char const* export_path = std::getenv("NG_EXPORT_NON"))
+            ng::write_non_file(export_path, constraints, result.solution,
+                               main_locs, image_path);
+        if (char const* overlay_path = std::getenv("NG_EXPORT_OVERLAY"))
+        {
+            if (render_nonogram_overlay(image, main_locs,
+                                        result.solution, overlay_path))
+                std::cout << "wrote overlay: " << overlay_path << "\n";
+        }
+    }
+    else
+    {
+        std::cout << "no solution\n";
+    }
+}
+
 #endif
 
 }
@@ -226,7 +326,21 @@ int main(int argc, char** argv)
     if (model_path.empty())
         model_path = "nonogram_detector/models/digits.onnx";
 
-    ng::DigitRecognizer recognizer(model_path);
+    // The digit model is required for any clue decoding: its constructor
+    // throws on a missing/corrupt ONNX file (e.g. the fallback relative path
+    // only resolves from the repo root). Exit cleanly with a message, like
+    // every other failure path in main().
+    std::unique_ptr<ng::DigitRecognizer> recognizer_ptr;
+    try
+    {
+        recognizer_ptr = std::make_unique<ng::DigitRecognizer>(model_path);
+    }
+    catch (std::exception const& e)
+    {
+        std::cerr << "digit model load failed: " << e.what() << "\n";
+        return 1;
+    }
+    auto& recognizer = *recognizer_ptr;
 
     // Load the digit-count (counter) model so genuine two-digit clue cells are
     // detected. Honour an explicit override, else look beside the digits model
@@ -238,7 +352,19 @@ int main(int argc, char** argv)
     else if (!std::filesystem::exists(counter_path))
         counter_path = "nonogram_detector/models/digits_counter.onnx";
     if (std::filesystem::exists(counter_path))
-        recognizer.set_counter_model(counter_path.string());
+    {
+        try
+        {
+            recognizer.set_counter_model(counter_path.string());
+        }
+        catch (std::exception const& e)
+        {
+            // The counter model is optional: continue without two-digit
+            // support rather than failing the whole run.
+            std::cerr << "counter model load failed: " << e.what()
+                      << " (continuing without two-digit support)\n";
+        }
+    }
 
     ng::ClueGrid clues;
     if (ng::decode_clues(image, detection, recognizer, clues))
@@ -296,79 +422,7 @@ int main(int argc, char** argv)
         print_clue_grid(clues.left);
 
 #ifdef NG_ENABLE_SOLVER
-        // Grid dimensions: H rows from the left strip, W columns from the top
-        // strip. Each left line maps to one grid row (fits grid width W); the
-        // top strip is transposed so each grid column maps to one clue line
-        // (fits grid height H).
-        std::size_t const H = clues.left.size();
-        std::size_t const W = clues.top.empty() ? 0 : clues.top[0].size();
-
-        // Convert the decoded strips into the corrector's cell grids: rows =
-        // left lines (as decoded), cols = transposed top lines. The cell's
-        // digit_count (from the counter model) is carried so the corrector can
-        // recognise genuine two-digit clue cells.
-        auto const clueline = [](std::vector<int> const& digits,
-                                 std::vector<int> const& counts) {
-            std::vector<ng::ClueCell> line(digits.size());
-            for (std::size_t i = 0; i < digits.size(); ++i)
-            {
-                line[i].digit = digits[i];
-                // digit_count comes from the counter model; fall back to the
-                // digit-sign convention when the count grid lacks a valid entry.
-                int const c = (i < counts.size()) ? counts[i] : 0;
-                line[i].digit_count =
-                    (c >= 1 && c <= 2) ? c : ((digits[i] < 0) ? 0 : 1);
-            }
-            return line;
-        };
-        ng::DecodedCells decoded;
-        decoded.rows.assign(H, {});
-        for (std::size_t r = 0; r < H; ++r)
-            decoded.rows[r] = clueline(clues.left[r], clues.left_count[r]);
-        decoded.cols.assign(W, {});
-        for (std::size_t r = 0; r < clues.top.size(); ++r)
-            for (std::size_t c = 0; c < clues.top[r].size() && c < W; ++c)
-                decoded.cols[c].push_back({clues.top[r][c], 0,
-                                           clues.top_count[r][c]});
-
-        // Structural consistency + correction layer between decode and solve.
-        ng::ConsistencyReport rep;
-        auto const corrected = ng::correct_clues(decoded, static_cast<int>(W),
-                                                 static_cast<int>(H), rep);
-        print_consistency_report(rep);
-
-        // Build solver constraints from the corrected cells: re-group each
-        // clue line into numbers (multi-digit cells concatenate).
-        ng::ClueConstraints constraints;
-        constraints.rows.assign(H, {});
-        for (std::size_t r = 0; r < H; ++r)
-            constraints.rows[r] = ng::group_clue_line(corrected.rows[r]);
-        constraints.cols.assign(W, {});
-        for (std::size_t c = 0; c < W; ++c)
-            constraints.cols[c] = ng::group_clue_line(corrected.cols[c]);
-
-        auto const result = ng::solve_nonogram(constraints);
-        std::cout << "solver: " << result.message << "\n";
-        if (result.solved)
-        {
-            std::cout << "solutions=" << result.solution_count
-                      << " line_solvable=" << (result.line_solvable ? "true" : "false")
-                      << "\n";
-            print_solution_grid(result.solution);
-            if (char const* export_path = std::getenv("NG_EXPORT_NON"))
-                ng::write_non_file(export_path, constraints, result.solution,
-                                   detection.main, image_path);
-            if (char const* overlay_path = std::getenv("NG_EXPORT_OVERLAY"))
-            {
-                if (render_nonogram_overlay(image, detection.main,
-                                            result.solution, overlay_path))
-                    std::cout << "wrote overlay: " << overlay_path << "\n";
-            }
-        }
-        else
-        {
-            std::cout << "no solution\n";
-        }
+        solve_and_export(clues, image, detection.main, image_path);
 #endif
     }
     else
