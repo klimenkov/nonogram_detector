@@ -417,6 +417,73 @@ bool test_grid_smooth_fit_approach1_recovers_smooth_grid()
     return true;
 }
 
+// SNAP: same synthetic smooth-but-curved grid (quadratic bow + skew) with
+// per-cross noise. Approach 2 fits each grid line independently (a polynomial
+// per row/column, no shared cross-family model). It should still reduce the
+// noise residual relative to the raw input, though it cannot borrow strength
+// across lines the way approach 1 does.
+bool test_grid_smooth_fit_approach2_recovers_smooth_grid()
+{
+    std::cout << "case: grid_smooth_fit_approach2 recovers a smooth curved grid\n";
+
+    int const R = 10, C = 12;           // (R+1) x (C+1) crossings
+    double const scale = 30.0;          // crossing spacing
+    double const bow = 0.0008;          // quadratic curvature (sag over grid)
+    double const skew = 0.06;           // shear in x as a function of row
+    double const noise = 0.8;           // per-cross noise (px)
+
+    cv::Mat locs(R + 1, C + 1, CV_32FC2);
+    auto rng = [seed = 12345u]() mutable {
+        seed = seed * 1103515245u + 12345u;
+        return static_cast<double>(seed % 100000u) / 100000.0 - 0.5;
+    };
+    for (int r = 0; r <= R; ++r)
+    {
+        for (int c = 0; c <= C; ++c)
+        {
+            double const x = c * scale + r * skew * scale;   // shear
+            double const y = r * scale + bow * (c * (C - c)) * scale * scale * 100.0;
+            locs.at<cv::Point2f>(r, c) =
+                cv::Point2f(static_cast<float>(x + noise * rng()),
+                            static_cast<float>(y + noise * rng()));
+        }
+    }
+
+    auto const eval_true = [&](int r, int c, double& tx, double& ty) {
+        tx = c * scale + r * skew * scale;
+        ty = r * scale + bow * (c * (C - c)) * scale * scale * 100.0;
+    };
+
+    auto const resid_of = [&](cv::Mat const& m) {
+        double sum = 0.0;
+        int n = 0;
+        for (int r = 0; r <= R; ++r)
+            for (int c = 0; c <= C; ++c)
+            {
+                double tx, ty;
+                eval_true(r, c, tx, ty);
+                cv::Point2f const p = m.at<cv::Point2f>(r, c);
+                sum += std::sqrt((p.x - tx) * (p.x - tx) + (p.y - ty) * (p.y - ty));
+                ++n;
+            }
+        return sum / n;
+    };
+
+    double const before = resid_of(locs);
+    cv::Mat const snapped = ng::grid_smooth_fit_approach2(locs, 2);
+    double const after = resid_of(snapped);
+
+    if (after > before * 0.5)
+    {
+        std::cerr << "  [FAIL] mean-resid before=" << before << " after=" << after
+                  << " (expected improvement by fit)\n";
+        return false;
+    }
+
+    std::cout << "  [ok] mean-resid before=" << before << " after=" << after << "\n";
+    return true;
+}
+
 }
 
 int main()
@@ -473,6 +540,7 @@ int main()
         if (!test_refine_cross_locs_ink_rejects_non_cross_ink()) ++failures;
         if (!test_refine_cross_locs_ink_bold_line_converges()) ++failures;
         if (!test_grid_smooth_fit_approach1_recovers_smooth_grid()) ++failures;
+        if (!test_grid_smooth_fit_approach2_recovers_smooth_grid()) ++failures;
     }
 
     failures += run_digit_recognizer_tests();

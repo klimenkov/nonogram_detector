@@ -264,4 +264,82 @@ cv::Mat grid_smooth_fit_approach1(cv::Mat const& cross_locs, int order, int coef
     return out;
 }
 
+cv::Mat grid_smooth_fit_approach2(cv::Mat const& cross_locs, int order)
+{
+    cv::Mat out = cross_locs.clone();
+    if (out.empty() || out.type() != CV_32FC2)
+    {
+        return out;
+    }
+
+    int const R = out.rows;      // number of horizontal lines (index 0..R-1)
+    int const C = out.cols;      // number of vertical lines (index 0..C-1)
+    if (R < 2 || C < 2)
+    {
+        return out;
+    }
+
+    // Independent per-line fit: no shared/global model, no cross-family
+    // smoothing. Each horizontal line is fit as a polynomial in column index
+    // (for x) and each vertical line as a polynomial in row index (for y).
+    for (int axis = 0; axis < 2; ++axis)
+    {
+        int const P = (axis == 0) ? out.rows : out.cols;
+        int const S = (axis == 0) ? out.cols : out.rows;
+
+        std::vector<std::vector<double>> coeff(P);
+        for (int p = 0; p < P; ++p)
+        {
+            std::vector<double> t, v;
+            for (int s = 0; s < S; ++s)
+            {
+                cv::Point2f const pt = (axis == 0)
+                    ? out.at<cv::Point2f>(p, s)
+                    : out.at<cv::Point2f>(s, p);
+                if (pt.x == kSentinel || pt.y == kSentinel) continue;
+                t.push_back(static_cast<double>(s));
+                v.push_back((axis == 0) ? pt.x : pt.y);
+            }
+            if (t.size() < 2)
+            {
+                continue;
+            }
+            int const deg = std::min(order, static_cast<int>(t.size()) - 1);
+            if (deg < 1)
+            {
+                continue;
+            }
+            coeff[p] = fit_poly(t, v, deg, static_cast<double>(S - 1));
+        }
+
+        double const smax = S > 1 ? static_cast<double>(S - 1) : 1.0;
+        for (int p = 0; p < P; ++p)
+        {
+            if (coeff[p].empty()) continue;
+            for (int s = 0; s < S; ++s)
+            {
+                double u = s / smax;
+                double val = 0.0, pw = 1.0;
+                for (int k = 0; k < static_cast<int>(coeff[p].size()); ++k)
+                {
+                    val += coeff[p][k] * pw;
+                    pw *= u;
+                }
+                if (axis == 0)
+                {
+                    cv::Point2f& pt = out.at<cv::Point2f>(p, s);
+                    pt.x = static_cast<float>(val);
+                }
+                else
+                {
+                    cv::Point2f& pt = out.at<cv::Point2f>(s, p);
+                    pt.y = static_cast<float>(val);
+                }
+            }
+        }
+    }
+
+    return out;
+}
+
 }  // namespace ng

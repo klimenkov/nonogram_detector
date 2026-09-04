@@ -23,4 +23,12 @@ namespace ng
 // captures smooth quadratic lens/sheet curvature in the family direction).
 cv::Mat grid_smooth_fit_approach1(cv::Mat const& cross_locs, int order, int coeff_order);
 
+// Approach 2 (baseline for the comparison): fits each grid line independently
+// as a low-order polynomial in the opposite index -- a polynomial in column
+// index for x of each horizontal line, and a polynomial in row index for y of
+// each vertical line. There is no shared/global model and no cross-family
+// smoothing, so a line cannot borrow strength from its neighbours. <order> is
+// the per-line polynomial degree.
+cv::Mat grid_smooth_fit_approach2(cv::Mat const& cross_locs, int order);
+
 }  // namespace ng
