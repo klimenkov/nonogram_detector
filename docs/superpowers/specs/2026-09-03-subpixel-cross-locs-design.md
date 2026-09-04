@@ -173,6 +173,12 @@ boundary lines). A second refinement stage was added:
 - Guards: `(-1,-1)` sentinels and border-clipped windows are skipped; a band
   with too little ink (empty paper, extrapolated padding) keeps the location.
   The band width itself bounds the maximum move (3 px per axis).
+- Iteration (post-shipping improvement): the band centroid is computed
+  iteratively, re-centring the band on the refined location each pass until
+  both axes move < 0.05 px (max 4 passes). A bold line whose location lands
+  near the band edge is truncated and under-corrected by one pass (~half a line
+  width short); 2-3 passes recover the exact center (unit test: 6 px cross
+  2.5 px off center → converges to 30.0 vs 29.5 single-pass).
 - Integration: in `detect()`, applied to the main mat right after the BFS
   (before `/scale` and before the top/left searches, so their seeds inherit
   refined positions), then to the top and left mats.

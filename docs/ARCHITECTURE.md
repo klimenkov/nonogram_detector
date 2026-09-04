@@ -191,9 +191,13 @@ Free functions:
   profile over a band around the location (so contaminating ink further out,
   e.g. a clue digit, cannot pull the centroid), subtracts the profile's
   baseline (the crossing line's uniform contribution), and takes the centroid,
-  which anti-aliased line edges make subpixel-accurate. Locations are kept
-  when the window clips the image border or the band holds too little ink
-  (empty paper, extrapolated padding).
+  which anti-aliased line edges make subpixel-accurate. The step iterates: each
+  pass re-centres the band on the refined location, so a bold line that the
+  band truncated by landing near its edge on the first pass is fully visible on
+  the next and the centroid converges to the true center (max 4 passes, stops
+  when both axes move < 0.05 px). Locations are kept when the window clips the
+  image border or the band holds too little ink (empty paper, extrapolated
+  padding).
 - `find_kernel_loc` (x2) — convolves a 0/1 image with a kernel via
   `cv::filter2D`, normalizes by the mask perimeter, and reports the peak via
   `minMaxLoc`, refined to subpixel precision with `refine_peak_loc`. A match is
