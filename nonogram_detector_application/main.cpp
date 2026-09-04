@@ -369,52 +369,6 @@ int main(int argc, char** argv)
     ng::ClueGrid clues;
     if (ng::decode_clues(image, detection, recognizer, clues))
     {
-        // Optional ground-truth overrides: when a cell's glyph is genuinely
-        // ambiguous (e.g. a hand-drawn digit that the pipeline misreads), a
-        // verified correction can be applied after decode via a fixes file
-        // (env NG_CLUE_FIXES). Format: one "T<r><c>=<digit>" (top strip) or
-        // "L<r><c>=<digit>" (left strip) per line; <digit> may be -1 to clear
-        // a cell. This keeps the correct decode surface intact while letting
-        // verified puzzle ground truth drive the final solve. The index is
-        // parsed as r = idx/100, c = idx%100, so rows are limited to 0..9 for
-        // a given column set (fine for this puzzle's strips).
-        if (char const* fixes_path = std::getenv("NG_CLUE_FIXES"))
-        {
-            std::ifstream fixes(fixes_path);
-            if (!fixes)
-            {
-                std::cerr << "NG_CLUE_FIXES: cannot open " << fixes_path << "\n";
-            }
-            else
-            {
-                std::string line;
-                while (std::getline(fixes, line))
-            {
-                if (line.empty())
-                    continue;
-                char side = line[0];
-                std::size_t const eq = line.find('=');
-                if (eq == std::string::npos || (side != 'T' && side != 'L'))
-                {
-                    std::cerr << "NG_CLUE_FIXES: ignoring bad line: " << line << "\n";
-                    continue;
-                }
-                int const cell_idx = std::atoi(line.substr(1, eq - 1).c_str());
-                int const value = std::atoi(line.substr(eq + 1).c_str());
-                auto& grid = (side == 'T') ? clues.top : clues.left;
-                auto& count = (side == 'T') ? clues.top_count : clues.left_count;
-                int r = cell_idx / 100, c = cell_idx % 100;
-                if (r < 0 || c < 0 || r >= (int)grid.size() || c >= (int)grid[r].size())
-                {
-                    std::cerr << "NG_CLUE_FIXES: out-of-range " << line << "\n";
-                    continue;
-                }
-                grid[r][c] = value;
-                count[r][c] = (value < 0) ? 0 : 1;
-                std::cout << "clue fix applied: " << line << "\n";
-                }
-            }
-        }
 
         std::cout << "top clues:\n";
         print_clue_grid(clues.top);
