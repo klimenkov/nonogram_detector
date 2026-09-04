@@ -1,0 +1,26 @@
+#pragma once
+
+#include <opencv2/core.hpp>
+#include <opencv2/core/types.hpp>
+
+namespace ng
+{
+
+// Fits a smooth, regular grid to the detected crossing locations and snaps each
+// location onto the fitted grid, returning a matrix of the same shape/type.
+//
+// Approach 1 (this trial branch): separable per-line curves whose line-family
+// coefficients are themselves smooth across the family. Concretely, for each
+// coordinate the model is built per axis by (a) fitting each grid line as a
+// low-order polynomial in the opposite index and (b) fitting each coefficient
+// band as a low-order polynomial in the line-family index, so the per-line
+// curves vary smoothly across the family. This gives a smooth regular grid
+// that follows real sheet curvature without over-fitting scattered individual
+// crossings, and guarantees consistent intersections.
+//
+// <order> is the per-line polynomial degree; <coeff_order> is the degree of
+// the across-family polynomial fit applied to each coefficient band (e.g. 2
+// captures smooth quadratic lens/sheet curvature in the family direction).
+cv::Mat grid_smooth_fit_approach1(cv::Mat const& cross_locs, int order, int coeff_order);
+
+}  // namespace ng

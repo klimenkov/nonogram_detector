@@ -5,7 +5,8 @@ set(HEADERS
 	"include/masks.hpp"
 	"include/point_compare.hpp"
 	"include/digit_recognizer.hpp"
-	"include/decode.hpp")
+	"include/decode.hpp"
+	"include/grid_smooth_fit.hpp")
 
 set(SOURCES
 	"src/image_operations.cpp"
@@ -13,7 +14,8 @@ set(SOURCES
 	"src/masks.cpp"
 	"src/point_compare.cpp"
 	"src/digit_recognizer.cpp"
-	"src/decode.cpp")
+	"src/decode.cpp"
+	"src/grid_smooth_fit.cpp")
 
 add_library(nonogram_detector ${HEADERS} ${SOURCES})
 target_include_directories(nonogram_detector PUBLIC include)
