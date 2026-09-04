@@ -96,6 +96,107 @@ cv::Point2f refine_peak_loc(cv::Mat const& image_filtered, cv::Point const& peak
 }
 
 
+void refine_cross_locs_ink(
+    cv::Mat const& image_gray,
+    cv::Mat& cross_locs,
+    int const window_radius)
+{
+    if (cross_locs.empty())
+    {
+        return;
+    }
+
+    // Half-width (px) of the per-axis band whose ink is considered; also the
+    // maximum distance the refinement can move a location, since the centroid
+    // is computed over the band alone.
+    int const BAND = 3;
+    // Minimum baseline-subtracted ink mass for a trustworthy per-axis center;
+    // below this the band holds no line (empty paper, extrapolated padding).
+    double const INK_MASS_MIN = 400.0;
+
+    for (int r = 0; r < cross_locs.rows; ++r)
+    {
+        for (int c = 0; c < cross_locs.cols; ++c)
+        {
+            cv::Point2f& cross_loc = cross_locs.at<cv::Point2f>(r, c);
+            if (cross_loc == cv::Point2f(-1.0f, -1.0f))
+            {
+                continue;
+            }
+
+            int const px = cvRound(cross_loc.x);
+            int const py = cvRound(cross_loc.y);
+            int const x0 = px - window_radius, x1 = px + window_radius;
+            int const y0 = py - window_radius, y1 = py + window_radius;
+            if (x0 < 0 || y0 < 0 || x1 >= image_gray.cols || y1 >= image_gray.rows)
+            {
+                continue;  // clipped at the image border; keep the location
+            }
+
+            // Window paper level: its brightest pixel.
+            uchar paper = 0;
+            for (int y = y0; y <= y1; ++y)
+            {
+                for (int x = x0; x <= x1; ++x)
+                    paper = std::max(paper, image_gray.at<uchar>(y, x));
+            }
+
+            // Per-axis ink profiles. The vertical line's column profile is
+            // summed over only the rows near the current location, and the
+            // horizontal line's row profile over only the columns near it, so
+            // ink that is far away on the other axis (a digit, the neighbouring
+            // line) does not contaminate the profile.
+            int const bx0 = std::max(x0, px - BAND), bx1 = std::min(x1, px + BAND);
+            int const by0 = std::max(y0, py - BAND), by1 = std::min(y1, py + BAND);
+
+            std::vector<double> col_mass(x1 - x0 + 1, 0.0);
+            std::vector<double> row_mass(y1 - y0 + 1, 0.0);
+            for (int y = by0; y <= by1; ++y)
+            {
+                for (int x = x0; x <= x1; ++x)
+                    col_mass[x - x0] +=
+                        std::max(0.0, static_cast<double>(paper) - image_gray.at<uchar>(y, x));
+            }
+            for (int y = y0; y <= y1; ++y)
+            {
+                for (int x = bx0; x <= bx1; ++x)
+                    row_mass[y - y0] +=
+                        std::max(0.0, static_cast<double>(paper) - image_gray.at<uchar>(y, x));
+            }
+
+            // Centroid of each profile over the band, with the profile's
+            // baseline (the crossing line's uniform contribution along this
+            // axis) subtracted so only the profiled line's own ink moves the
+            // center. The location keeps its per-axis value when the band
+            // carries too little ink.
+            auto const refine_axis = [](std::vector<double> const& mass,
+                                        int const coord0,
+                                        int const b_lo,
+                                        int const b_hi,
+                                        double const mass_min,
+                                        float& coord) {
+                double baseline = mass.front();
+                for (double const m : mass)
+                    baseline = std::min(baseline, m);
+
+                double s = 0.0, sw = 0.0;
+                for (int i = b_lo; i <= b_hi; ++i)
+                {
+                    double const w = std::max(0.0, mass[i] - baseline);
+                    s += (coord0 + i) * w;
+                    sw += w;
+                }
+                if (sw > mass_min)
+                    coord = static_cast<float>(s / sw);
+            };
+
+            refine_axis(col_mass, x0, bx0 - x0, bx1 - x0, INK_MASS_MIN, cross_loc.x);
+            refine_axis(row_mass, y0, by0 - y0, by1 - y0, INK_MASS_MIN, cross_loc.y);
+        }
+    }
+}
+
+
 std::pair<bool, cv::Point2f> find_kernel_loc(
     cv::Mat const& image_thresholded,
     cv::Mat const& kernel,

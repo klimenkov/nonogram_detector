@@ -164,10 +164,17 @@ Detection CrossLocsDetector::detect(cv::Mat const& image)
         return detection;
     }
 
+    // Second refinement stage: snap each found cross to the geometric center
+    // of the drawn line intersection (ink centroid of the grayscale). Runs
+    // before scaling and before the top/left searches so their seed positions
+    // inherit the refined locations.
+    int const ink_window_radius = std::max(4, cell_side_length / 4);
+    refine_cross_locs_ink(image_gray, cross_locs_main_mat, ink_window_radius);
+
     detection.found = true;
     detection.main = scale_cross_locs_mat(cross_locs_main_mat, scale);
 
-    auto const cross_locs_top_mat = get_cross_locs_top_mat(
+    auto cross_locs_top_mat = get_cross_locs_top_mat(
         image_thresholded,
         cross_locs_main_mat,
         cell_side_length,
@@ -175,10 +182,11 @@ Detection CrossLocsDetector::detect(cv::Mat const& image)
 
     if (!cross_locs_top_mat.empty())
     {
+        refine_cross_locs_ink(image_gray, cross_locs_top_mat, ink_window_radius);
         detection.top = scale_cross_locs_mat(cross_locs_top_mat, scale);
     }
 
-    auto const cross_locs_left_mat = get_cross_locs_left_mat(
+    auto cross_locs_left_mat = get_cross_locs_left_mat(
         image_thresholded,
         cross_locs_main_mat,
         cell_side_length,
@@ -186,6 +194,7 @@ Detection CrossLocsDetector::detect(cv::Mat const& image)
 
     if (!cross_locs_left_mat.empty())
     {
+        refine_cross_locs_ink(image_gray, cross_locs_left_mat, ink_window_radius);
         detection.left = scale_cross_locs_mat(cross_locs_left_mat, scale);
     }
 

@@ -209,6 +209,102 @@ bool test_refine_peak_loc_flat_response()
     return true;
 }
 
+// Anti-aliased cross with an analytically known subpixel center: each pixel's
+// ink coverage is the exact overlap of its footprint with the 2-px-wide
+// vertical/horizontal bars, so the per-axis baseline-subtracted ink centroids
+// equal the bar centers exactly. The input location is the approximate
+// (response-peak stage) position; the sentinel entry must be left alone.
+bool test_refine_cross_locs_ink_subpixel()
+{
+    std::cout << "case: refine_cross_locs_ink recovers subpixel cross center\n";
+
+    float const cx = 24.3f, cy = 29.7f;   // true center, subpixel
+    float const half = 1.0f;              // bars are 2 px wide
+    cv::Mat gray(60, 60, CV_8U, cv::Scalar(255));
+    auto const overlap = [](double a0, double a1, double b0, double b1) {
+        return std::max(0.0, std::min(a1, b1) - std::max(a0, b0));
+    };
+    for (int y = 0; y < gray.rows; ++y)
+    {
+        for (int x = 0; x < gray.cols; ++x)
+        {
+            double const v = overlap(x - 0.5, x + 0.5, cx - half, cx + half);
+            double const h = overlap(y - 0.5, y + 0.5, cy - half, cy + half);
+            double const ink = std::max(v, h);
+            gray.at<uchar>(y, x) = static_cast<uchar>(255 - 200 * ink);
+        }
+    }
+
+    cv::Mat locs(1, 2, CV_32FC2, cv::Scalar(-1.0f, -1.0f));
+    locs.at<cv::Point2f>(0, 0) = cv::Point2f(24.0f, 30.0f);  // approx position
+
+    ng::refine_cross_locs_ink(gray, locs, 10);
+
+    cv::Point2f const refined = locs.at<cv::Point2f>(0, 0);
+    cv::Point2f const sentinel = locs.at<cv::Point2f>(0, 1);
+    // Union ink coverage (max of the two bars) is not exactly additive at
+    // partially-covered edge pixels, which bounds the recoverable accuracy
+    // at ~0.015 px; 0.05 leaves margin.
+    float const tolerance = 0.05f;
+    if (std::fabs(refined.x - cx) > tolerance ||
+        std::fabs(refined.y - cy) > tolerance ||
+        sentinel != cv::Point2f(-1.0f, -1.0f))
+    {
+        std::cerr << "  [FAIL] refined=" << refined << " expected ~(" << cx
+                  << "," << cy << ") sentinel=" << sentinel << "\n";
+        return false;
+    }
+
+    std::cout << "  [ok] refined=" << refined << "\n";
+    return true;
+}
+
+// Blank paper around the location: no line ink, so the location must be kept.
+bool test_refine_cross_locs_ink_empty_window()
+{
+    std::cout << "case: refine_cross_locs_ink keeps location on empty paper\n";
+
+    cv::Mat gray(60, 60, CV_8U, cv::Scalar(255));
+    cv::Mat locs(1, 1, CV_32FC2);
+    locs.at<cv::Point2f>(0, 0) = cv::Point2f(24.0f, 30.0f);
+
+    ng::refine_cross_locs_ink(gray, locs, 10);
+
+    cv::Point2f const refined = locs.at<cv::Point2f>(0, 0);
+    if (refined != cv::Point2f(24.0f, 30.0f))
+    {
+        std::cerr << "  [FAIL] refined=" << refined << " expected (24,30)\n";
+        return false;
+    }
+
+    std::cout << "  [ok] refined=" << refined << "\n";
+    return true;
+}
+
+// A dark blob in the window but outside the refinement band: the ink does not
+// belong to the cross, so the location must be kept on both axes.
+bool test_refine_cross_locs_ink_rejects_non_cross_ink()
+{
+    std::cout << "case: refine_cross_locs_ink keeps location near non-cross ink\n";
+
+    cv::Mat gray(60, 60, CV_8U, cv::Scalar(255));
+    gray(cv::Rect(34, 24, 6, 6)) = 40;   // blob ~10 px right of the location
+    cv::Mat locs(1, 1, CV_32FC2);
+    locs.at<cv::Point2f>(0, 0) = cv::Point2f(24.0f, 27.0f);
+
+    ng::refine_cross_locs_ink(gray, locs, 10);
+
+    cv::Point2f const refined = locs.at<cv::Point2f>(0, 0);
+    if (refined != cv::Point2f(24.0f, 27.0f))
+    {
+        std::cerr << "  [FAIL] refined=" << refined << " expected (24,27)\n";
+        return false;
+    }
+
+    std::cout << "  [ok] refined=" << refined << "\n";
+    return true;
+}
+
 }
 
 int main()
@@ -260,6 +356,9 @@ int main()
         std::cout << "case: end-to-end subpixel cross detection\n";
         if (!test_find_kernel_loc_subpixel_cross()) ++failures;
         if (!test_refine_peak_loc_flat_response()) ++failures;
+        if (!test_refine_cross_locs_ink_subpixel()) ++failures;
+        if (!test_refine_cross_locs_ink_empty_window()) ++failures;
+        if (!test_refine_cross_locs_ink_rejects_non_cross_ink()) ++failures;
     }
 
     failures += run_digit_recognizer_tests();
