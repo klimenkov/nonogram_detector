@@ -7,6 +7,7 @@
 #include <opencv2/opencv.hpp>
 
 #include "cross_locs_detector.hpp"
+#include "digit_recognizer.hpp"
 #include "grid_smooth_fit.hpp"
 #include "image_operations.hpp"
 #include "masks.hpp"
@@ -553,6 +554,47 @@ bool test_grid_smooth_fit_approach3_recovers_smooth_grid()
 
 }
 
+bool test_prepare_input_accepts_thin_digit()
+{
+    // A 20x20 cell with a 2 px-wide vertical stem (like the thin "1" that used
+    // to be rejected): prepare_input must produce a blob.
+    cv::Mat cell(20, 20, CV_8UC3, cv::Scalar(205, 205, 205));
+    cv::rectangle(cell, cv::Rect(9, 3, 2, 11), cv::Scalar(40, 40, 40), cv::FILLED);
+    cv::Mat blob;
+    if (!ng::DigitRecognizer::prepare_input(cell, blob))
+    {
+        std::cout << "FAIL: thin digit rejected by prepare_input\n";
+        return false;
+    }
+    return true;
+}
+
+bool test_prepare_input_rejects_speck()
+{
+    // A tiny 1x2 speck (2 fg px < area gate) must be treated as empty.
+    cv::Mat cell(20, 20, CV_8UC3, cv::Scalar(205, 205, 205));
+    cv::rectangle(cell, cv::Rect(10, 10, 1, 2), cv::Scalar(40, 40, 40), cv::FILLED);
+    cv::Mat blob;
+    if (ng::DigitRecognizer::prepare_input(cell, blob))
+    {
+        std::cout << "FAIL: speck accepted by prepare_input\n";
+        return false;
+    }
+    return true;
+}
+
+bool test_prepare_input_rejects_empty()
+{
+    cv::Mat cell(20, 20, CV_8UC3, cv::Scalar(205, 205, 205));
+    cv::Mat blob;
+    if (ng::DigitRecognizer::prepare_input(cell, blob))
+    {
+        std::cout << "FAIL: empty cell accepted by prepare_input\n";
+        return false;
+    }
+    return true;
+}
+
 int main()
 {
     int failures = 0;
@@ -609,6 +651,9 @@ int main()
         if (!test_grid_smooth_fit_approach1_recovers_smooth_grid()) ++failures;
         if (!test_grid_smooth_fit_approach2_recovers_smooth_grid()) ++failures;
         if (!test_grid_smooth_fit_approach3_recovers_smooth_grid()) ++failures;
+        if (!test_prepare_input_accepts_thin_digit()) ++failures;
+        if (!test_prepare_input_rejects_speck()) ++failures;
+        if (!test_prepare_input_rejects_empty()) ++failures;
     }
 
     failures += run_digit_recognizer_tests();

@@ -32,31 +32,6 @@ std::pair<cv::Point, cv::Mat> softmax_probs(cv::Mat const& logits_flat)
     return std::make_pair(max_loc, probs);
 }
 
-// Returns the bounding box of the largest contour in <binary> (whose foreground
-// is white on black), or an empty rect if there is none. The caller should feed
-// a region with the grid frame already removed so the digit is the dominant
-// foreground object.
-cv::Rect largest_contour_bbox(cv::Mat const& binary)
-{
-    std::vector<std::vector<cv::Point>> contours;
-    cv::findContours(binary, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
-
-    double best_area = 0.0;
-    cv::Rect best{0, 0, 0, 0};
-
-    for (auto const& contour : contours)
-    {
-        double const area = cv::contourArea(contour);
-        if (area > best_area)
-        {
-            best_area = area;
-            best = cv::boundingRect(contour);
-        }
-    }
-
-    return best;
-}
-
 }
 
 DigitRecognizer::DigitRecognizer(std::filesystem::path const& model_path)
@@ -90,18 +65,24 @@ bool DigitRecognizer::prepare_input(cv::Mat const& cell, cv::Mat& out_blob)
     cv::threshold(gray, binary, 0, 255, cv::THRESH_BINARY_INV | cv::THRESH_OTSU);
 
     // Crop inward past the surrounding grid-frame ring. The frame always sits
-    // along the cell border, so removing this margin lets findContours see only
-    // the digit instead of the frame.
+    // along the cell border, so removing this margin leaves only the digit's
+    // ink inside the crop.
     int const margin = std::max(2, static_cast<int>(std::round(binary.cols * 0.2)));
     cv::Rect inner(margin, margin,
         binary.cols - 2 * margin, binary.rows - 2 * margin);
     if (inner.width < 3 || inner.height < 3)
         return false;
 
-    cv::Mat inner_binary = binary(inner);
-    cv::Rect bbox = largest_contour_bbox(inner_binary);
-
-    if (bbox.width < 3 || bbox.height < 3)
+    // Union of all foreground pixels: the margin ring already stripped the
+    // grid frame, so remaining ink is the digit. A thin digit (a "1" with a
+    // 2 px stem, possibly fragmented by the margin crop) is kept; only nearly
+    // empty cells fail the area gate.
+    std::vector<cv::Point> nz;
+    cv::findNonZero(binary(inner), nz);
+    if (nz.size() < 8)
+        return false;
+    cv::Rect bbox = cv::boundingRect(nz);
+    if (bbox.width < 2 || bbox.height < 2)
         return false;
 
     // Translate back into full-cell coordinates and add a small pad.
