@@ -155,3 +155,29 @@ decimals to preserve subpixel — e.g. two decimal places).
 ## Open Questions
 
 - None.
+
+---
+
+## Addendum (2026-09-04): ink-centroid second-stage refinement
+
+After shipping the paraboloid fit, residual bias remained on real photos
+(plateau "first-max" corner placement, up to ~1 px on clue-strip and bold
+boundary lines). A second refinement stage was added:
+
+- `refine_cross_locs_ink(gray, cross_locs, window_radius)` (public, in
+  `image_operations`): per cross, per axis, build the darkness-weighted ink
+  profile over a 3 px band around the current location (ink outside the band —
+  e.g. a clue digit — cannot contaminate it), subtract the profile's baseline
+  (min over the window — removes the crossing line's uniform contribution),
+  and take the centroid; anti-aliased line edges make it subpixel-accurate.
+- Guards: `(-1,-1)` sentinels and border-clipped windows are skipped; a band
+  with too little ink (empty paper, extrapolated padding) keeps the location.
+  The band width itself bounds the maximum move (3 px per axis).
+- Integration: in `detect()`, applied to the main mat right after the BFS
+  (before `/scale` and before the top/left searches, so their seeds inherit
+  refined positions), then to the top and left mats.
+- Verified: unit tests (analytic anti-aliased cross recovered within 0.05 px;
+  empty-window and non-cross-ink guards), grid dims unchanged, and ASCII ink
+  dumps on real photos showing the detected positions on the actual line
+  centers (bold 3 px boundary line centered to 0.01 px).
+

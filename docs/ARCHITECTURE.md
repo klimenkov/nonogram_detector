@@ -185,6 +185,15 @@ Free functions:
   through the integer peak and its neighbors in the filtered response,
   returning a subpixel `cv::Point2f`; falls back to the integer peak when the
   peak sits at the response border or the response is flat.
+- `refine_cross_locs_ink(image_gray, cross_locs, window_radius)` — second
+  refinement stage: snaps every cross location to the geometric center of the
+  drawn line intersection. Per axis it builds the darkness-weighted ink
+  profile over a band around the location (so contaminating ink further out,
+  e.g. a clue digit, cannot pull the centroid), subtracts the profile's
+  baseline (the crossing line's uniform contribution), and takes the centroid,
+  which anti-aliased line edges make subpixel-accurate. Locations are kept
+  when the window clips the image border or the band holds too little ink
+  (empty paper, extrapolated padding).
 - `find_kernel_loc` (x2) — convolves a 0/1 image with a kernel via
   `cv::filter2D`, normalizes by the mask perimeter, and reports the peak via
   `minMaxLoc`, refined to subpixel precision with `refine_peak_loc`. A match is
@@ -256,9 +265,12 @@ The core is `CrossLocsDetector::detect`:
 ## 5. Data representation: `cross_locs`
 
 The central concept. Each `cross_locs_*` is a `CV_32FC2` `cv::Mat` where element
-`(x, y)` stores the subpixel position (`cv::Point2f`, refined by a paraboloid
-fit — `refine_peak_loc` — on the `filter2D` peak inside `find_kernel_loc`) of
-the grid intersection at column `x`, row `y` of that region. A value of
+`(x, y)` stores the subpixel position (`cv::Point2f`) of the grid intersection
+at column `x`, row `y` of that region, located in two refinement stages: a
+paraboloid fit on the `filter2D` peak inside `find_kernel_loc`
+(`refine_peak_loc`), then the ink centroid of the grayscale line intersection
+(`refine_cross_locs_ink`, run in `detect()` before scaling and before the
+top/left searches so their seeds inherit the refined positions). A value of
 `cv::Point2f(-1, -1)` means *not located* (before augmentation) / *empty
 padding* (after).
 
