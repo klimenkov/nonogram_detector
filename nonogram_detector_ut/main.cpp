@@ -305,6 +305,51 @@ bool test_refine_cross_locs_ink_rejects_non_cross_ink()
     return true;
 }
 
+// A bold (6 px wide) cross with the previous stage's position 2.5 px off the
+// line center: one refinement pass truncates the line at the band edge and
+// under-corrects (~0.5 px short), so the refinement must iterate — each pass
+// re-centring the band on the refined location — to converge on the true
+// center.
+bool test_refine_cross_locs_ink_bold_line_converges()
+{
+    std::cout << "case: refine_cross_locs_ink converges on a bold off-center cross\n";
+
+    float const cx = 24.0f, cy = 30.0f;   // true center of the 6 px cross
+    float const half = 3.0f;
+    cv::Mat gray(60, 60, CV_8U, cv::Scalar(255));
+    auto const overlap = [](double a0, double a1, double b0, double b1) {
+        return std::max(0.0, std::min(a1, b1) - std::max(a0, b0));
+    };
+    for (int y = 0; y < gray.rows; ++y)
+    {
+        for (int x = 0; x < gray.cols; ++x)
+        {
+            double const v = overlap(x - 0.5, x + 0.5, cx - half, cx + half);
+            double const h = overlap(y - 0.5, y + 0.5, cy - half, cy + half);
+            double const ink = std::max(v, h);
+            gray.at<uchar>(y, x) = static_cast<uchar>(255 - 200 * ink);
+        }
+    }
+
+    cv::Mat locs(1, 1, CV_32FC2);
+    locs.at<cv::Point2f>(0, 0) = cv::Point2f(24.0f, 27.5f);  // 2.5 px off in y
+
+    ng::refine_cross_locs_ink(gray, locs, 10);
+
+    cv::Point2f const refined = locs.at<cv::Point2f>(0, 0);
+    float const tolerance = 0.05f;
+    if (std::fabs(refined.x - cx) > tolerance ||
+        std::fabs(refined.y - cy) > tolerance)
+    {
+        std::cerr << "  [FAIL] refined=" << refined << " expected ~(" << cx
+                  << "," << cy << ")\n";
+        return false;
+    }
+
+    std::cout << "  [ok] refined=" << refined << "\n";
+    return true;
+}
+
 }
 
 int main()
@@ -359,6 +404,7 @@ int main()
         if (!test_refine_cross_locs_ink_subpixel()) ++failures;
         if (!test_refine_cross_locs_ink_empty_window()) ++failures;
         if (!test_refine_cross_locs_ink_rejects_non_cross_ink()) ++failures;
+        if (!test_refine_cross_locs_ink_bold_line_converges()) ++failures;
     }
 
     failures += run_digit_recognizer_tests();
