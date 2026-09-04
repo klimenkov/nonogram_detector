@@ -31,4 +31,12 @@ cv::Mat grid_smooth_fit_approach1(cv::Mat const& cross_locs, int order, int coef
 // the per-line polynomial degree.
 cv::Mat grid_smooth_fit_approach2(cv::Mat const& cross_locs, int order);
 
+// Approach 3: fits x(r,c) and y(r,c) directly as one global bivariate
+// polynomial (full total degree <order>) over the rectangular index domain
+// mapped to [0,1]^2. Every valid crossing contributes to a single shared
+// surface, so rows and columns are coupled rigidly. Very compact and always
+// smooth, but real non-square curvature may need a higher order to fit and can
+// oscillate. <order> is the bivariate polynomial total degree.
+cv::Mat grid_smooth_fit_approach3(cv::Mat const& cross_locs, int order);
+
 }  // namespace ng

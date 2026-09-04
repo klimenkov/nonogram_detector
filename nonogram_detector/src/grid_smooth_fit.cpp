@@ -1,6 +1,7 @@
 #include "grid_smooth_fit.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <vector>
 
@@ -337,6 +338,126 @@ cv::Mat grid_smooth_fit_approach2(cv::Mat const& cross_locs, int order)
                 }
             }
         }
+    }
+
+    return out;
+}
+
+// Number of terms in a full bivariate polynomial basis of degree <order>:
+// all u^i v^j with 0 <= i+j <= order.
+int bivar_nterms(int order)
+{
+    return (order + 1) * (order + 2) / 2;
+}
+
+// Writes the bivariate basis for (u, v) -- the terms u^i v^j with 0 <= i+j <=
+// <order> -- into <col>, ordering by total degree k = i+j (layer k holds
+// (i=0..k, j=k-i) at indices k*(k+1)/2 + i). Matches bivar_nterms ordering.
+// The layer indices lay out as the upper-triangular cells of the exponent pair
+// grid, giving a consistent, well-conditioned monomial basis over [0,1]^2.
+void bivar_basis(double u, double v, int order, std::vector<double>& col)
+{
+    for (int k = 0; k <= order; ++k)
+    {
+        int const base = k * (k + 1) / 2;
+        for (int i = 0; i <= k; ++i)
+        {
+            int const j = k - i;
+            col[base + i] = std::pow(u, i) * std::pow(v, j);
+        }
+    }
+}
+
+// Fits x(r,c) and y(r,c) as one global bivariate polynomial (full degree
+// <order>) over the normalized index domain (u, v) in [0,1]^2, and snaps each
+// crossing onto the fitted surface. Every valid crossing contributes to a
+// single shared surface, so rows and columns are coupled rigidly.
+cv::Mat grid_smooth_fit_approach3(cv::Mat const& cross_locs, int order)
+{
+    cv::Mat out = cross_locs.clone();
+    if (out.empty() || out.type() != CV_32FC2)
+    {
+        return out;
+    }
+
+    int const R = out.rows;
+    int const C = out.cols;
+    if (R < 2 || C < 2)
+    {
+        return out;
+    }
+    double const ru = R > 1 ? static_cast<double>(R - 1) : 1.0;
+    double const cv = C > 1 ? static_cast<double>(C - 1) : 1.0;
+    if (order < 1)
+    {
+        order = 1;
+    }
+    int const n = bivar_nterms(order);
+
+    // Gather valid crossings.
+    std::vector<std::array<double, 2>> uv;
+    for (int r = 0; r < R; ++r)
+        for (int c = 0; c < C; ++c)
+        {
+            cv::Point2f const p = out.at<cv::Point2f>(r, c);
+            if (p.x == kSentinel || p.y == kSentinel) continue;
+            uv.push_back({r / ru, c / cv});
+        }
+
+    if (uv.size() < static_cast<std::size_t>(n))
+    {
+        return out;  // not enough data to fit this order
+    }
+
+    // Build the shared Gram matrix and evaluate/back-substitute per coordinate.
+    std::vector<double> A(n * n, 0.0);
+    std::vector<double> colbuf(n);
+    for (std::size_t t = 0; t < uv.size(); ++t)
+    {
+        double const u = uv[t][0], v = uv[t][1];
+        bivar_basis(u, v, order, colbuf);
+        for (int a = 0; a < n; ++a)
+        {
+            for (int b = 0; b < n; ++b)
+                A[a * n + b] += colbuf[a] * colbuf[b];
+        }
+    }
+
+    // Solve A w = rhs for each coordinate (x then y).
+    for (int coord = 0; coord < 2; ++coord)
+    {
+        std::vector<double> rhs(n, 0.0);
+        for (std::size_t t = 0; t < uv.size(); ++t)
+        {
+            double val;
+            if (coord == 0) val = out.at<cv::Point2f>(t / C, t % C).x;
+            else            val = out.at<cv::Point2f>(t / C, t % C).y;
+            double const u = uv[t][0], v = uv[t][1];
+            bivar_basis(u, v, order, colbuf);
+            for (int a = 0; a < n; ++a) rhs[a] += colbuf[a] * val;
+        }
+
+        // Solve via SVD for robustness.
+        cv::Mat Am(n, n, CV_64F), rhsM(n, 1, CV_64F), w;
+        for (int a = 0; a < n; ++a)
+        {
+            for (int b = 0; b < n; ++b) Am.at<double>(a, b) = A[a * n + b];
+            rhsM.at<double>(a, 0) = rhs[a];
+        }
+        cv::solve(Am, rhsM, w, cv::DECOMP_SVD);
+
+        for (int r = 0; r < R; ++r)
+            for (int c = 0; c < C; ++c)
+            {
+                cv::Point2f& p = out.at<cv::Point2f>(r, c);
+                if (p.x == kSentinel || p.y == kSentinel) continue;
+                double const u = r / ru, v = c / cv;
+                bivar_basis(u, v, order, colbuf);
+                double val = 0.0;
+                for (int a = 0; a < n; ++a) val += colbuf[a] * w.at<double>(a, 0);
+                if (coord == 0) p.x = static_cast<float>(val);
+                else            p.y = static_cast<float>(val);
+            }
     }
 
     return out;

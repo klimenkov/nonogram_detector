@@ -71,7 +71,49 @@ cannot borrow strength across lines.
   worse (0.713/0.705 vs 0.448/0.331). Fewer lines in clue regions shrink the gap.
 - Both are large improvements over the current per-cross baseline (~0.5 px median).
 
-## Approach 3 — Global 2-D polynomial surface  (pending, branch `trial/grid-fit-surface`)
+## Approach 3 — Global 2-D polynomial surface  ✅ (branch `trial/grid-fit-surface`)
+Model: fit `x(r,c)` and `y(r,c)` as one global bivariate polynomial (full total
+degree, over the index domain mapped to [0,1]^2). Every crossing contributes to a
+single shared surface; rows/columns coupled rigidly. `grid_smooth_fit_approach3(locs, order)`.
 
-## Cross-approach summary (to fill once 2 and 3 are done)
-(TBD)
+### Real photo (order=2 — see caveat)
+| region | before p50 / p90 / max | after p50 / p90 / max |
+|--------|------------------------|-----------------------|
+| main (n=551) | 0.576 / 1.012 / 1.934 | **0.049 / 0.049 / 0.049** |
+| top  (n=116) | 0.887 / 2.650 / 3.498 | 0.410 / 0.410 / 0.410 |
+| left (n=114) | 0.843 / 2.543 / 4.112 | 0.320 / 0.320 / 0.320 |
+
+### Synthetic — picks the right order (critical)
+| order | zero-noise recovery | meaning |
+|-------|--------------------|---------|
+| 1 | **775 px error** | plane collapses the curved grid — gross over-smooth |
+| 2 | 0.000 px | biquadratic exactly spans true form |
+| 3,4 | 0.000 px | higher orders also recover |
+
+With 0.8 px noise (order=2): 0.299 → **0.075** (ratio 0.25) — best of the three on the synthetic.
+
+### ⚠ Important metric caveat (why the synthetic control matters)
+On the real photo, **A3 order=1 reports a "perfect" 0.000 neighbor-residual**, yet the
+synthetic shows it collapses the genuine curved/lens grid to a plane (775 px error).
+The neighbor-fit residual only measures internal self-consistency, which any shared
+low-order surface trivially satisfies — it cannot distinguish "correctly smooth" from
+"over-smoothed to a blob." The synthetic-known-grid control is what exposes this.
+**Conclusion: only measurable on real curvature; order=2 (biquadratic) is the smallest
+order that captures real lens/sheet curvature without collapsing it. Treat order=1's
+0.000 as an artifact, not a win.**
+
+## Cross-approach summary (A1/A2/A3, main grid, order=2 unless noted)
+| approach | synthetic resid (noise=0.8) | real main p50 | real main p90 | model |
+|----------|------------------------------|---------------|---------------|-------|
+| baseline | — | 0.576 | 1.012 | per-cross only |
+| A1 separable + smooth bands | 0.090 (0.30x) | **0.053** | 0.076 | row/col curves, smooth coeff bands |
+| A2 independent per-line | 0.148 (0.50x) | 0.111 | 0.218 | independent per-line polys |
+| A3 global bivariate (order 2) | **0.075 (0.25x)** | **0.049** | 0.049 | one shared 2-D polynomial |
+
+Recommendation and trade-offs: A3 (order 2) has the lowest synthetic residual and the
+best main p50 on the photo, and is the simplest/most compact model. A1 is nearly as good
+on the photo (0.053) and is more robust to real non-square curvature (its per-line curves
+do not force a single global polynomial). A2 is the weakest (no shared model) but the
+simplest to reason about and still ~5x better than baseline. On the top/left clue regions
+(when fitted with their own matrices) all three end near ~0.3-0.4 px p50, with A2 slightly
+worse on p90.
