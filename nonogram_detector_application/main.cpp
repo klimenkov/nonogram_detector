@@ -1,3 +1,4 @@
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -41,6 +42,83 @@ void print_clue_grid(std::vector<std::vector<int>> const& grid)
         }
         std::cout << "\n";
     }
+}
+
+bool export_clue_cells(
+    std::string const& photo,
+    std::vector<std::vector<ng::ClueCellInfo>> const& top_info,
+    std::vector<std::vector<ng::ClueCellInfo>> const& left_info,
+    std::filesystem::path const& dir)
+{
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec);
+    if (ec)
+    {
+        std::cerr << "NG_EXPORT_CELLS: cannot create " << dir << ": " << ec.message() << "\n";
+        return false;
+    }
+
+    struct Entry
+    {
+        int pos, row, col;
+        std::string png;
+        int predicted, count;
+        double whole_conf, conf_l, conf_r;
+    };
+    std::vector<Entry> entries;
+    auto const emit = [&](std::string const& strip,
+                          std::vector<std::vector<ng::ClueCellInfo>> const& grid) {
+        int pos = 0;
+        for (std::size_t row = 0; row < grid.size(); ++row)
+            for (std::size_t col = 0; col < grid[row].size(); ++col, ++pos)
+            {
+                char name[96];
+                std::snprintf(name, sizeof name, "%s_%s_%04zu_%04zu.png",
+                              photo.c_str(), strip.c_str(), row, col);
+                std::filesystem::path p = dir / name;
+                if (!grid[row][col].cell.empty())
+                    cv::imwrite(p.string(), grid[row][col].cell);
+                else
+                    cv::imwrite(p.string(), cv::Mat::zeros(20, 20, CV_8UC3));
+                entries.push_back({pos, static_cast<int>(row), static_cast<int>(col),
+                                   std::string(name),
+                                   grid[row][col].digit, grid[row][col].count,
+                                   grid[row][col].whole_conf,
+                                   grid[row][col].conf_l, grid[row][col].conf_r});
+            }
+    };
+    emit("top", top_info);
+    std::size_t top_count = entries.size();
+    emit("left", left_info);
+
+    std::ofstream out(dir / "index.json");
+    if (!out)
+    {
+        std::cerr << "NG_EXPORT_CELLS: cannot write index.json in " << dir << "\n";
+        return false;
+    }
+    out << "{\n";
+    out << "  \"photo\": \"" << photo << "\",\n";
+    out << "  \"cells\": [\n";
+    for (std::size_t i = 0; i < entries.size(); ++i)
+    {
+        auto const& e = entries[i];
+        out << "    {\"pos\":" << e.pos
+            << ",\"strip\":\"" << (i < top_count ? "top" : "left") << "\""
+            << ",\"row\":" << e.row
+            << ",\"col\":" << e.col
+            << ",\"png\":\"" << e.png << "\""
+            << ",\"predicted\":" << e.predicted
+            << ",\"count\":" << e.count
+            << ",\"whole_conf\":" << e.whole_conf
+            << ",\"conf_l\":" << e.conf_l
+            << ",\"conf_r\":" << e.conf_r
+            << "}";
+        if (i + 1 < entries.size()) out << ",";
+        out << "\n";
+    }
+    out << "  ]\n}\n";
+    return true;
 }
 
 #ifdef NG_ENABLE_SOLVER
@@ -267,6 +345,52 @@ void solve_and_export(
     {
         std::cout << "no solution\n";
     }
+
+    // Dump the corrected puzzle (clues + optional solution) as JSON whenever
+    // the environment asks, so downstream tooling can render the recognition
+    // and solving stages without re-running recognition.
+    if (char const* dump_path = std::getenv("NG_EXPORT_PUZZLE"))
+    {
+        std::ofstream out(dump_path);
+        if (!out)
+        {
+            std::cerr << "NG_EXPORT_PUZZLE: cannot write " << dump_path << "\n";
+        }
+        else
+        {
+            auto const group = [](std::vector<std::vector<int>> const& lines) {
+                std::string s = "[";
+                for (std::size_t i = 0; i < lines.size(); ++i)
+                {
+                    if (i) s += ",";
+                    s += "[";
+                    for (std::size_t j = 0; j < lines[i].size(); ++j)
+                    {
+                        if (j) s += ",";
+                        s += std::to_string(lines[i][j]);
+                    }
+                    s += "]";
+                }
+                return s + "]";
+            };
+            out << "{\n";
+            out << "  \"width\": " << W << ",\n";
+            out << "  \"height\": " << H << ",\n";
+            out << "  \"rows\": " << group(constraints.rows) << ",\n";
+            out << "  \"columns\": " << group(constraints.cols) << ",\n";
+            out << "  \"solved\": " << (result.solved ? "true" : "false") << "\n";
+            if (result.solved)
+            {
+                std::string goal;
+                for (auto const& row : result.solution)
+                    for (int const cell : row)
+                        goal += (cell ? '1' : '0');
+                out << "  ,\"goal\": \"" << goal << "\"\n";
+            }
+            out << "}\n";
+            std::cout << "wrote puzzle: " << dump_path << "\n";
+        }
+    }
 }
 
 #endif
@@ -374,6 +498,22 @@ int main(int argc, char** argv)
         print_clue_grid(clues.top);
         std::cout << "left clues:\n";
         print_clue_grid(clues.left);
+
+        if (char const* cells_dir = std::getenv("NG_EXPORT_CELLS"))
+        {
+            std::vector<std::vector<ng::ClueCellInfo>> top_info, left_info;
+            if (ng::decode_clues_ex(image, detection, recognizer, clues,
+                                    top_info, left_info))
+            {
+                std::filesystem::path photo_id =
+                    std::filesystem::path(image_path).stem();
+                export_clue_cells(photo_id.string(), top_info, left_info, cells_dir);
+            }
+            else
+            {
+                std::cerr << "NG_EXPORT_CELLS: decode_clues_ex produced no strips\n";
+            }
+        }
 
 #ifdef NG_ENABLE_SOLVER
         solve_and_export(clues, image, detection.main, image_path);
