@@ -196,6 +196,8 @@ bool render_nonogram_overlay(
     cv::Scalar const fill_color(60, 20, 10, 255);  // BGR, very dark blue
 
     cv::Mat overlay = result.clone();
+    cv::Point2f const invalid_pt(-1.0f, -1.0f);
+
     for (int r = 0; r < H; ++r)
     {
         for (int c = 0; c < W; ++c)
@@ -203,11 +205,19 @@ bool render_nonogram_overlay(
             if (solution[r][c] != 1)
                 continue;
 
+            cv::Point2f const p0 = main_locs.at<cv::Point2f>(r,     c);
+            cv::Point2f const p1 = main_locs.at<cv::Point2f>(r,     c + 1);
+            cv::Point2f const p2 = main_locs.at<cv::Point2f>(r + 1, c + 1);
+            cv::Point2f const p3 = main_locs.at<cv::Point2f>(r + 1, c);
+
+            if (p0 == invalid_pt || p1 == invalid_pt || p2 == invalid_pt || p3 == invalid_pt)
+                continue;
+
             std::vector<cv::Point> cell_poly(4);
-            cell_poly[0] = cv::Point(main_locs.at<cv::Point2f>(r,     c));      // top-left
-            cell_poly[1] = cv::Point(main_locs.at<cv::Point2f>(r,     c + 1));  // top-right
-            cell_poly[2] = cv::Point(main_locs.at<cv::Point2f>(r + 1, c + 1));  // bottom-right
-            cell_poly[3] = cv::Point(main_locs.at<cv::Point2f>(r + 1, c));      // bottom-left
+            cell_poly[0] = cv::Point(p0);      // top-left
+            cell_poly[1] = cv::Point(p1);      // top-right
+            cell_poly[2] = cv::Point(p2);      // bottom-right
+            cell_poly[3] = cv::Point(p3);      // bottom-left
 
             cv::fillConvexPoly(overlay, cell_poly, fill_color);
         }
@@ -223,10 +233,12 @@ bool render_nonogram_overlay(
     {
         for (int c = 0; c < main_locs.cols - 1; ++c)
         {
-            cv::line(result,
-                     main_locs.at<cv::Point2f>(r, c),
-                     main_locs.at<cv::Point2f>(r, c + 1),
-                     line_color, line_thickness);
+            cv::Point2f const p1 = main_locs.at<cv::Point2f>(r, c);
+            cv::Point2f const p2 = main_locs.at<cv::Point2f>(r, c + 1);
+            if (p1 != invalid_pt && p2 != invalid_pt)
+            {
+                cv::line(result, p1, p2, line_color, line_thickness);
+            }
         }
     }
 
@@ -235,10 +247,12 @@ bool render_nonogram_overlay(
     {
         for (int r = 0; r < main_locs.rows - 1; ++r)
         {
-            cv::line(result,
-                     main_locs.at<cv::Point2f>(r, c),
-                     main_locs.at<cv::Point2f>(r + 1, c),
-                     line_color, line_thickness);
+            cv::Point2f const p1 = main_locs.at<cv::Point2f>(r, c);
+            cv::Point2f const p2 = main_locs.at<cv::Point2f>(r + 1, c);
+            if (p1 != invalid_pt && p2 != invalid_pt)
+            {
+                cv::line(result, p1, p2, line_color, line_thickness);
+            }
         }
     }
 

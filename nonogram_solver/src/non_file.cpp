@@ -127,8 +127,11 @@ NonCustomBlock parse_non_custom_block(std::filesystem::path const& path)
         {
             std::string dims = line.substr(7);
             auto const x_pos = dims.find('x');
-            block.grid_rows = std::atoi(dims.substr(0, x_pos).c_str());
-            block.grid_cols = std::atoi(dims.substr(x_pos + 1).c_str());
+            if (x_pos != std::string::npos)
+            {
+                block.grid_rows = std::atoi(dims.substr(0, x_pos).c_str());
+                block.grid_cols = std::atoi(dims.substr(x_pos + 1).c_str());
+            }
         }
         else if (line.rfind("#cells:", 0) == 0)
         {
@@ -142,6 +145,8 @@ NonCustomBlock parse_non_custom_block(std::filesystem::path const& path)
                 while (iss >> token)
                 {
                     auto const comma = token.find(',');
+                    if (comma == std::string::npos)
+                        continue;
                     float x = parse_float(token.substr(0, comma));
                     float y = parse_float(token.substr(comma + 1));
                     block.cells.emplace_back(x, y);

@@ -17,7 +17,16 @@ std::pair<cv::Mat, float> resize(
     int const width_height_max_destination,
     cv::InterpolationFlags const interpolation_flag)
 {
+    if (image.empty())
+    {
+        return std::make_pair(cv::Mat(), 0.0f);
+    }
+
     auto const width_height_max = static_cast<float>(std::max(image.rows, image.cols));
+    if (width_height_max <= 0.0f)
+    {
+        return std::make_pair(cv::Mat(), 0.0f);
+    }
     auto const scale = width_height_max_destination / width_height_max;
 
     cv::Mat image_resized;
@@ -288,6 +297,11 @@ std::pair<bool, cv::Point2f> find_kernel_loc(
 
 std::vector<std::vector<cv::Mat>> get_cell_warped_images_vector(cv::Mat const& image, cv::Mat const& cross_locs)
 {
+    if (image.empty() || cross_locs.rows < 2 || cross_locs.cols < 2)
+    {
+        return {};
+    }
+
     // Warp each clue cell to 20x20, matching the resolution the real-photo
     // digit models were trained on (the marked 20x20 clue cells). Keeping the
     // warp consistent with the training data makes both the single-digit and
@@ -300,6 +314,8 @@ std::vector<std::vector<cv::Mat>> get_cell_warped_images_vector(cv::Mat const& i
     std::vector<std::vector<cv::Mat>> cell_warped_images_vector(
         cell_warped_images_vector_size.height,
         std::vector<cv::Mat>(cell_warped_images_vector_size.width));
+
+    cv::Point2f const invalid_pt(-1.0f, -1.0f);
 
     for (int tl_x = 0, br_x = 1; br_x < cross_locs.cols; ++tl_x, ++br_x)
     {
@@ -314,6 +330,13 @@ std::vector<std::vector<cv::Mat>> get_cell_warped_images_vector(cv::Mat const& i
             cv::Point2f const cell_tr = cross_locs.at<cv::Point2f>(tr);
             cv::Point2f const cell_br = cross_locs.at<cv::Point2f>(br);
             cv::Point2f const cell_bl = cross_locs.at<cv::Point2f>(bl);
+
+            if (cell_tl == invalid_pt || cell_tr == invalid_pt ||
+                cell_br == invalid_pt || cell_bl == invalid_pt)
+            {
+                cell_warped_images_vector[tl_y][tl_x] = cv::Mat::zeros(cell_warped_size, image.type());
+                continue;
+            }
 
             std::vector<cv::Point2f> const cell_points = {
                 cell_tl, cell_tr, cell_br, cell_bl };

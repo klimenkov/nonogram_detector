@@ -637,6 +637,95 @@ bool test_guard_genuine_two_digit_kept()
     return true;
 }
 
+bool test_guard_zero_means_empty()
+{
+    // A standalone 0 is never a valid nonogram clue; it must be treated as
+    // empty (-1) so it cannot inject a phantom clue into the solver.
+    if (ng::sanitize_clue_digit(0) != -1)
+    {
+        std::cout << "FAIL: standalone 0 not treated as empty\n";
+        return false;
+    }
+    if (ng::sanitize_clue_digit(5) != 5)
+    {
+        std::cout << "FAIL: genuine single digit altered\n";
+        return false;
+    }
+    if (ng::sanitize_clue_digit(10) != 10)
+    {
+        std::cout << "FAIL: two-digit value containing a zero was altered\n";
+        return false;
+    }
+    if (ng::sanitize_clue_digit(-1) != -1)
+    {
+        std::cout << "FAIL: empty sentinel altered\n";
+        return false;
+    }
+    return true;
+}
+
+bool test_resize_empty_image()
+{
+    auto const res = ng::resize(cv::Mat(), 1200);
+    if (!res.first.empty() || res.second != 0.0f)
+    {
+        std::cout << "FAIL: resize on empty image did not return empty result\n";
+        return false;
+    }
+    return true;
+}
+
+bool test_get_cell_warped_images_vector_empty_or_small()
+{
+    cv::Mat const dummy = cv::Mat::zeros(100, 100, CV_8UC3);
+    if (!ng::get_cell_warped_images_vector(dummy, cv::Mat()).empty())
+    {
+        std::cout << "FAIL: get_cell_warped_images_vector did not return empty for empty cross_locs\n";
+        return false;
+    }
+    if (!ng::get_cell_warped_images_vector(dummy, cv::Mat(1, 1, CV_32FC2)).empty())
+    {
+        std::cout << "FAIL: get_cell_warped_images_vector did not return empty for 1x1 cross_locs\n";
+        return false;
+    }
+    if (!ng::get_cell_warped_images_vector(cv::Mat(), cv::Mat(2, 2, CV_32FC2)).empty())
+    {
+        std::cout << "FAIL: get_cell_warped_images_vector did not return empty for empty image\n";
+        return false;
+    }
+    return true;
+}
+
+bool test_get_cell_warped_images_vector_missing_cross_sentinel()
+{
+    cv::Mat const img = cv::Mat(100, 100, CV_8UC3, cv::Scalar(255, 255, 255));
+    cv::Mat cross_locs(2, 2, CV_32FC2);
+    cross_locs.at<cv::Point2f>(0, 0) = cv::Point2f(10.0f, 10.0f);
+    cross_locs.at<cv::Point2f>(0, 1) = cv::Point2f(30.0f, 10.0f);
+    cross_locs.at<cv::Point2f>(1, 0) = cv::Point2f(-1.0f, -1.0f); // missing corner
+    cross_locs.at<cv::Point2f>(1, 1) = cv::Point2f(30.0f, 30.0f);
+
+    auto const cells = ng::get_cell_warped_images_vector(img, cross_locs);
+    if (cells.size() != 1 || cells[0].size() != 1)
+    {
+        std::cout << "FAIL: cells grid size mismatch\n";
+        return false;
+    }
+    if (cells[0][0].rows != 20 || cells[0][0].cols != 20)
+    {
+        std::cout << "FAIL: cell dimension mismatch\n";
+        return false;
+    }
+    cv::Mat gray;
+    cv::cvtColor(cells[0][0], gray, cv::COLOR_BGR2GRAY);
+    if (cv::countNonZero(gray) != 0)
+    {
+        std::cout << "FAIL: cell with invalid corner is not zero-filled\n";
+        return false;
+    }
+    return true;
+}
+
 int main()
 {
     int failures = 0;
@@ -699,6 +788,10 @@ int main()
         if (!test_guard_implausible_split_falls_back()) ++failures;
         if (!test_guard_whole_cell_wins_on_counter_fp()) ++failures;
         if (!test_guard_genuine_two_digit_kept()) ++failures;
+        if (!test_guard_zero_means_empty()) ++failures;
+        if (!test_resize_empty_image()) ++failures;
+        if (!test_get_cell_warped_images_vector_empty_or_small()) ++failures;
+        if (!test_get_cell_warped_images_vector_missing_cross_sentinel()) ++failures;
     }
 
     failures += run_digit_recognizer_tests();

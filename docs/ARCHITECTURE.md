@@ -50,7 +50,7 @@ nonogram_detector/
     detection.hpp             ng::Detection result struct (found/main/top/left)
     digit_recognizer.hpp      ONNX-digit classifier (cv::dnn) for clue cells
     decode.hpp                Decodes clue strips into per-cell digit grids
-    grid_detector.hpp         LEGACY duplicate of cross_locs_detector (see §8)
+    grid_smooth_fit.hpp       Polynomial surface grid-fitting models
   src/
     image_operations.cpp
     masks.cpp
@@ -58,7 +58,7 @@ nonogram_detector/
     cross_locs_detector.cpp
     digit_recognizer.cpp
     decode.cpp
-    grid_detector.cpp         LEGACY, not compiled
+    grid_smooth_fit.cpp
   models/
     digits.onnx               Bundled MNIST-digit CNN (ONNX Model Zoo)
 nonogram_solver/
@@ -330,12 +330,7 @@ not an automated test. Parameter behavior is now validated by the synthetic
 
 ## 8. Dead / legacy code
 
-- `nonogram_detector/include/grid_detector.hpp` and `src/grid_detector.cpp` define
-  a second class **also named `CrossLocsDetector`** (an earlier variant with a
-  slightly different `detect` signature that omits the bool and has no empty-matrix
-  guards). It is **not** listed in the library's CMake `SOURCES`, so it is never
-  compiled or linked. Treat it as legacy/dead code; it can only ever be referred to
-  via a mismatched translation unit and is not part of the active build.
+- The legacy duplicate class `grid_detector.hpp` and `src/grid_detector.cpp` has been removed.
 - Numerous commented-out debug blocks (imshow/draw/print) throughout
   `cross_locs_detector.cpp`.
 

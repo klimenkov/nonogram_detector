@@ -161,6 +161,42 @@ void test_relative_source_path()
     std::filesystem::remove_all(dir);
 }
 
+void test_parse_malformed_non_file()
+{
+    std::cout << "case: parse_non_custom_block handles malformed tokens\n";
+
+    auto const tmp = std::filesystem::temp_directory_path() / "malformed_test.non";
+    {
+        std::ofstream out(tmp);
+        out << "title \"malformed\"\n";
+        out << "#source: photo.jpg\n";
+        out << "#grid: invalid_dims_without_separator\n";
+        out << "#cells:\n";
+        out << "missing_comma 12.34,56.78 incomplete,trailing_comma,\n";
+    }
+
+    try
+    {
+        auto const block = ng::parse_non_custom_block(tmp);
+        check(block.source == "photo.jpg", "malformed file source parsed");
+        check(block.grid_rows == 0, "malformed grid rows defaults to 0");
+        check(block.grid_cols == 0, "malformed grid cols defaults to 0");
+        check(block.cells.size() >= 1, "valid token parsed despite malformed neighbors");
+        if (!block.cells.empty())
+        {
+            check(std::fabs(block.cells[0].x - 12.34f) <= 0.01f, "cell x parsed");
+            check(std::fabs(block.cells[0].y - 56.78f) <= 0.01f, "cell y parsed");
+        }
+    }
+    catch (std::exception const& e)
+    {
+        check(false, std::string("parse_non_custom_block threw exception: ") + e.what());
+    }
+
+    std::error_code ec;
+    std::filesystem::remove(tmp, ec);
+}
+
 }
 
 int run_non_file_tests()
@@ -169,6 +205,7 @@ int run_non_file_tests()
     test_round_trip();
     test_empty_detection_no_block();
     test_relative_source_path();
+    test_parse_malformed_non_file();
 
     for (auto const& f : failures)
         std::cerr << "non_file: " << f << "\n";
