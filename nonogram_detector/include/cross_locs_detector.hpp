@@ -26,6 +26,13 @@ public:
 
     Detection detect(cv::Mat const& image);
 
+    // Single resize-interpolation pass through the whole pipeline; detects the
+    // interpolation so detect() can prefer INTER_LINEAR and fall back to
+    // INTER_AREA (see cross_locs_detector.cpp:detect()).
+    Detection detect_impl(
+        cv::Mat const& image,
+        cv::InterpolationFlags interpolation_flag);
+
     static int estimate_cell_side_length(
         cv::Mat const& image_thresholded,
         cv::Rect const& roi,

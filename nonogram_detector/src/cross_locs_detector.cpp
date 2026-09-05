@@ -108,9 +108,31 @@ int CrossLocsDetector::estimate_cell_side_length(
 
 Detection CrossLocsDetector::detect(cv::Mat const& image)
 {
+    // INTER_LINEAR downscaling preserves the digit strips exactly as the
+    // recognizer expects, so it stays the primary pass. But it attenuates
+    // thin grid rules: when a photo's crossings never reach the strict
+    // similarity ratio it drops every junction (empty grid) even though the
+    // grid is plainly visible. INTER_AREA averages pixels on downscale and
+    // keeps those thin rules intact, so retry with it when the LINEAR pass
+    // finds no grid.
+    Detection detection =
+        detect_impl(image, cv::InterpolationFlags::INTER_LINEAR);
+    if (!detection.found)
+    {
+        detection = detect_impl(image, cv::InterpolationFlags::INTER_AREA);
+    }
+    return detection;
+}
+
+
+Detection CrossLocsDetector::detect_impl(
+    cv::Mat const& image,
+    cv::InterpolationFlags const interpolation_flag)
+{
     cv::Mat image_resized;
     float scale;
-    std::tie(image_resized, scale) = resize(image, M_RESIZE_WIDTH_HEIGHT_MAX);
+    std::tie(image_resized, scale) =
+        resize(image, M_RESIZE_WIDTH_HEIGHT_MAX, interpolation_flag);
 
     cv::Mat image_gray;
     cv::cvtColor(image_resized, image_gray, cv::COLOR_BGR2GRAY);
@@ -153,11 +175,39 @@ Detection CrossLocsDetector::detect(cv::Mat const& image)
         return detection;
     }
 
+    // Grid-junction match strength varies with the photo (thin/broken rulers,
+    // ink bleeding into the cells near crossings, printed grid corners). The
+    // strict ratio is tuned for crisp grids; some photos never reach it at any
+    // junction, so the cross walk aborts on the very first step and the grid
+    // comes back empty. Retry the whole propagation with a relaxed ratio and
+    // keep the result only when it is a solid grid (a tiny blob would be a
+    // degenerate match, not a detected puzzle).
+    double similarity_ratio_min = M_SIMILARITY_RATIO_MIN;
+
     cv::Mat cross_locs_main_mat = get_cross_locs_main_mat(
         image_thresholded,
         cell_loc,
         cell_side_length,
-        M_SIMILARITY_RATIO_MIN);
+        similarity_ratio_min);
+
+    if (cross_locs_main_mat.empty())
+    {
+        double const similarity_ratio_min_loose = 0.7;
+        cross_locs_main_mat = get_cross_locs_main_mat(
+            image_thresholded,
+            cell_loc,
+            cell_side_length,
+            similarity_ratio_min_loose);
+        if (!cross_locs_main_mat.empty() &&
+            (cross_locs_main_mat.cols < 8 || cross_locs_main_mat.rows < 8))
+        {
+            cross_locs_main_mat = cv::Mat();
+        }
+        else
+        {
+            similarity_ratio_min = similarity_ratio_min_loose;
+        }
+    }
 
     if (cross_locs_main_mat.empty())
     {
@@ -178,7 +228,7 @@ Detection CrossLocsDetector::detect(cv::Mat const& image)
         image_thresholded,
         cross_locs_main_mat,
         cell_side_length,
-        M_SIMILARITY_RATIO_MIN);
+        similarity_ratio_min);
 
     if (!cross_locs_top_mat.empty())
     {
@@ -190,7 +240,7 @@ Detection CrossLocsDetector::detect(cv::Mat const& image)
         image_thresholded,
         cross_locs_main_mat,
         cell_side_length,
-        M_SIMILARITY_RATIO_MIN);
+        similarity_ratio_min);
 
     if (!cross_locs_left_mat.empty())
     {
