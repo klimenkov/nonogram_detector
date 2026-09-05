@@ -23,7 +23,7 @@ Labeling today means manually creating/curating those folders. The user wants a 
 
 ### 1.3 Chosen approach (brainstorm, 2026-09-05)
 - **Browser review page** with active learning: the model's prediction is pre-filled; existing `digits_marked` labels are shown as hints.
-- **Full re-review with old labels**: for every cell the reviewer sees prediction + old label; re-review can also correct old mislabels.
+- **Full re-review with old labels**: for every cell the reviewer sees prediction + old label (when the old label is alignable — see §3.2 notes); re-review can also correct old mislabels.
 - **Any photo**: the tool takes an image path like the app, runs detection automatically.
 - **C++ export / Python review boundary**: the app dumps the exact production warped cells + predictions; Python (stdlib only) serves the page and writes labels into `digits_marked/`.
 
@@ -92,15 +92,17 @@ bool decode_clues_ex(cv::Mat const& image, Detection const& detection,
   - **amber** = low whole-cell confidence (< 0.6),
   - **red** = old label and prediction conflict.
 - Interaction: click a cell → bottom bar shows it enlarged with a text input. Type `1`..`9`, `10+` (two-digit), `-`/`e` (empty); Enter saves and advances to the next cell; `Space` confirms the shown label as human-verified; Esc skips (unmarked for now).
-- A "keep remaining as prediction" button sets the rest to accepted-prediction (so the reviewer folds in everything without clicking through; the flagged amber/red cells are reviewed first). This is **not** the same as per-cell Confirm: it marks cells `verified=false`, never `human`.
-- Old-label hints from `digits_marked/` matched by (photo, strip, `pos`). The old corpus filenames are sequential indices, so this works when strip dimensions are unchanged between runs; on a per-strip dimension mismatch, hints for that strip are dropped with a notice (no misalignment).
+- A "keep remaining as prediction" button sets the untouched cells to accepted-prediction (so the reviewer folds in everything without clicking through; the flagged amber/red cells are reviewed first). Cells that already carry an old `digits_marked` label are left alone and still resolve as carried-over (rule 3). This is **not** the same as per-cell Confirm: it marks cells `verified=false`, never `human`.
+- Old-label hints from `digits_marked/` matched by (photo, strip, `pos`). Deterministic `<photo>_<strip>_<rrrr>_<cccc>.png` names always align. Legacy sequential names only align when a strip's indices form a complete unique `0..N-1` set (they do not for the current corpus — its indices are per-dump-run counters that overlap across runs); for those photos the first review pass is predictions-only and old labels become visible after the first deterministic export.
 - State saved incrementally to `labels.json` in the cells dir (quit/restart safe).
 
 **Label semantics** per cell (resolved at export time):
 1. Explicitly typed value → **human**, `verified=true`.
 2. Confirmed via `Space` / confirm button → **human**, `verified=true`.
 3. No action but an old corpus label exists → **carried-over**, `verified=true`.
-4. Otherwise → **accepted-prediction** (model label), `verified=false`.
+4. Otherwise, when "keep remaining as prediction" was used → **accepted-prediction** (model label), `verified=false`.
+
+Cells with no action, no old label, and no confirm-all are **excluded from the manifest** — the reviewer deliberately skipped them (or the review is a partial pass); they stay unlabeled. The "keep remaining" button is the explicit opt-in for folding in the rest.
 
 **`annotate.py export <cells_dir>`**
 - Materializes into `digits_marked/<value>/` (`1`..`9`, two-digit `10+`, empty → `-1`).
