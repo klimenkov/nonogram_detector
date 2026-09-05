@@ -47,35 +47,24 @@ With the guard (whole-cell override when `whole_conf >= 0.9`), these 3 cases sho
 
 **Leave-one-photo-out (counter model, pre-guard):** mean two-digit decode acc 63.77%.
 
-## End-to-End Per-Photo
+## End-to-End Per-Photo (actual, 2026-09-05, C++ app)
 
-| Photo | Before (baseline) | After (est.) | Notes |
-|--------|-------------------|---------------|-------|
-| `nonograms/20180811_114632.jpg` | ✓ solved | ✓ solved | Only one that worked before; still works |
-| `nonograms/20191102_004052.jpg` | `[3 2 42 4]` | Guard fixes 42→4 | Thin-1 fix may also help |
-| `nonograms/20200511_145923.jpg` | rows 653 vs cols 610 | Guard should fix | Grid size mismatch |
-| `nonograms/20200511_150216.jpg` | `[99 2 1 1 3]` | Guard should fix | 99 → single digits |
-| `nonograms/20201120_000400.jpg` | `[98 2]` | Guard should fix | 98 → single digits |
-| `nonograms/nonogram.jpg` | `[41 1]` | Guard should fix | 41 → single digits |
-| `nonograms/photo_2018-08-18_13-28-02.jpg` | `[78 6]` | Guard should fix | 78 → single digits |
-| `nonograms/vqtsmfq7o3k21.jpg` | found=false | Unknown | |
+| Photo | Status | Notes |
+|--------|--------|-------|
+| `nonograms/20180811_114632.jpg` | SOLVED | consistent 199/199 |
+| `nonograms/nonogram.jpg` | SOLVED | consistent 324/324 |
+| `nonograms/20200511_145923.jpg` | SOLVED | consistent 650/650 |
+| `nonograms/20191102_004052.jpg` | NOT SOLVED | INCONSISTENT row 628 vs col 621 |
+| `nonograms/20200511_150216.jpg` | NOT SOLVED | col `[16 2 1 1 3]` min 27 > height 20 |
+| `nonograms/20201120_000400.jpg` | NOT SOLVED | col `[3 9 2 1 9 3]` min 32 > height 25 |
+| `nonograms/photo_2018-08-18_13-28-02.jpg` | NOT SOLVED | row `[36 55]` min 92 > width 54 |
+| `nonograms/vqtsmfq7o3k21.jpg` | DETECTION FAILED | found=false |
 
 ## Runtime Limitations
 
-### C++ App ONNX Loading (pre-existing)
+### C++ App ONNX Loading (previously blocked, now works)
 
-**Status**: The C++ application fails to load ONNX models via `cv::dnn::readNetFromONNX` due to an OpenCV 4.6.0 bug in the ONNX importer. This is a **pre-existing environmental issue** — the original committed models (git commit 69efa07) also fail to load in the current environment.
-
-**Symptoms**: `ERROR during processing node with 3 inputs and 1 outputs: [Conv]... kernel_size not specified`
-
-**Root cause**: The OpenCV 4.6.0 ONNX importer has a bug parsing Conv nodes in the specific format produced by the original model. The environment was likely previously running an older OpenCV (4.5.x) that did not have this bug.
-
-**Impact**: C++ end-to-end verification (Task 6 Step 1) cannot be run in the current environment. Python corpus evaluation (eval_corpus.py) works correctly since system Python has OpenCV 5.0.0 which can load the models.
-
-**Resolution options** (not yet implemented):
-1. Upgrade OpenCV in the C++ build to 4.8+ or 5.x
-2. Build OpenCV from source with the ONNX importer fix
-3. Use a different ONNX export format that OpenCV 4.6.0 can parse
+**Status**: RESOLVED. The C++ application now loads both ONNX models via `cv::dnn::readNetFromONNX` under the current build (OpenCV 4.6.0). Verified empirically on 2026-09-05: running `nonogram_detector_application` on the corpus decodes correct, consistent clues and solves puzzles with no `digit model load failed` / `counter model load failed` errors. Earlier reports (Sep 4) recorded an OpenCV 4.6.0 ONNX-import bug rejecting the committed models; that is no longer reproducible in the current environment/build.
 
 ## Residual Known Limits
 
@@ -94,6 +83,6 @@ With the guard (whole-cell override when `whole_conf >= 0.9`), these 3 cases sho
 # Corpus sweep (Python, requires system python3 with cv2)
 python3 nonogram_detector/tools/eval_corpus.py
 
-# C++ application (blocked by OpenCV 4.6.0 ONNX loading bug)
+# C++ application
 ./build/nonogram_detector_application/nonogram_detector_application nonograms/20180811_114632.jpg
 ```
