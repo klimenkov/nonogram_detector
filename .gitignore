@@ -11,3 +11,8 @@ __pycache__/
 *.pyc
 .vscode/
 .opencode/
+
+# OS metadata
+*:Zone.Identifier*
+.DS_Store
+Thumbs.db
