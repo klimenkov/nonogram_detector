@@ -204,8 +204,16 @@ int DigitRecognizer::recognize_two_digits_ex(
     cv::Mat right = cell.colRange(hw, w);
 
     cv::Mat left_up, right_up;
-    cv::resize(left, left_up, cv::Size(), upscale, upscale, cv::INTER_CUBIC);
-    cv::resize(right, right_up, cv::Size(), upscale, upscale, cv::INTER_CUBIC);
+    if (upscale > 1)
+    {
+        cv::resize(left, left_up, cv::Size(), upscale, upscale, cv::INTER_CUBIC);
+        cv::resize(right, right_up, cv::Size(), upscale, upscale, cv::INTER_CUBIC);
+    }
+    else
+    {
+        left_up = left;
+        right_up = right;
+    }
 
     int l = -1, r = -1;
     double cl = 0.0, cr = 0.0;

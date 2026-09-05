@@ -72,7 +72,7 @@ void recognize_cell(
     if (count == 2)
     {
         int const split = recognizer.recognize_two_digits_ex(
-            cell, count, 3, kSplitConfidenceMin, conf_l, conf_r);
+            cell, count, 1, kSplitConfidenceMin, conf_l, conf_r);
         int const whole = recognizer.recognize_ex(cell, whole_conf);
         digit = resolve_two_digit(split, whole, whole_conf, conf_l, conf_r,
                                   max_clue_value, kSplitConfidenceMin,

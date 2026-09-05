@@ -60,7 +60,7 @@ public:
     // returns -1. Each half must also clear <confidence_min> softmax
     // confidence. Returns -1 when either half cannot be read reliably or the
     // composed value leaves [0, 99].
-    int recognize_two_digits(cv::Mat const& cell, int count, int upscale = 3,
+    int recognize_two_digits(cv::Mat const& cell, int count, int upscale = 1,
                              double confidence_min = 0.0) const;
 
     // Like recognize_two_digits(), but reports the per-half softmax confidences
