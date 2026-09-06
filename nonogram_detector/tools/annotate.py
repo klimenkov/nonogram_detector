@@ -163,7 +163,7 @@ def make_meta_card(meta, cells_dir):
         table_html = '<div class="meta-info"><table class="meta-table">%s</table></div>' % table_rows
 
     return (
-        '<details class="meta-details" open>'
+        '<details class="meta-details">'
         '<summary class="meta-summary"><b>Detected Grid & Parameters</b> (click to expand/collapse)</summary>'
         '<div class="meta-content">%s%s</div>'
         '</details>' % (img_html, table_html)
@@ -198,21 +198,14 @@ def make_page(photo, cells, old_by_strip, labels, meta=None):
     left_cnt = sum(1 for c in cells if c.get("strip") == "left")
     saved_cnt = sum(1 for c in cells if labels.get(c.get("strip"), {}).get("%04d_%04d" % (c.get("row", 0), c.get("col", 0))) is not None)
 
-    # Quick Jump bar at the top
-    jump_bar = (
-        '<div class="jump-bar">'
-        '<span class="stat-pill"><b>Total cells:</b> %d (Top: %d, Left: %d)</span>'
-        '<span class="stat-pill"><b>Saved:</b> <span id="saved-cnt">%d</span> / %d</span>'
-        '<span style="font-weight:bold;margin:0 6px 0 10px">Jump to clue:</span>'
-    ) % (total_cnt, top_cnt, left_cnt, saved_cnt, total_cnt)
+    jump_links = ""
     for v in sorted_vals:
         label_text = "Empty (-1)" if v == -1 else str(v)
         cnt = len(groups[v])
-        jump_bar += ('<a class="jump-btn" href="#grp-%s">%s <small>(%d)</small></a> '
-                     % (v, label_text, cnt))
-    jump_bar += '</div>'
+        jump_links += ('<a class="jump-btn" href="#grp-%s">%s <small>(%d)</small></a> '
+                       % (v, label_text, cnt))
 
-    body_html = jump_bar
+    body_html = ""
     for v in sorted_vals:
         label_title = "Empty (-1)" if v == -1 else "Clue: %s" % v
         items = groups[v]
@@ -243,95 +236,266 @@ def make_page(photo, cells, old_by_strip, labels, meta=None):
         body_html += "</div></div>"
     badge_html = '<span class="total-badge">%d cells total (%d top, %d left)</span>' % (total_cnt, top_cnt, left_cnt)
     meta_html = make_meta_card(meta, CELLS_DIR)
-    return PAGE_TMPL % (photo, photo, badge_html, meta_html, body_html)
+    return PAGE_TMPL % {
+        "photo": photo,
+        "badge_html": badge_html,
+        "meta_html": meta_html,
+        "body_html": body_html,
+        "jump_links": jump_links,
+        "saved_cnt": saved_cnt,
+        "total_cnt": total_cnt,
+    }
 
 
-PAGE_TMPL = """<!doctype html><html><head><meta charset="utf-8"><title>%s annotation</title>
+PAGE_TMPL = """<!doctype html><html><head><meta charset="utf-8"><title>%(photo)s annotation</title>
 <style>
- body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;margin:16px;background:#fafafa;color:#222}
- h1{margin:0 0 10px;font-size:24px;display:flex;align-items:center;flex-wrap:wrap;gap:8px}
- h2{margin:18px 0 6px;font-size:18px;border-bottom:2px solid #ddd;padding-bottom:4px}
- .cnt{font-size:14px;font-weight:normal;color:#666}
- .strip{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 16px}
- .cell{position:relative;border:3px solid #bdbdbd;cursor:pointer;border-radius:4px;background:#fff;transition:transform 0.1s}
- .cell:hover{transform:scale(1.08);z-index:2}
- .cell img{width:64px;height:64px;display:block;image-rendering:pixelated}
- .cell .lbl{position:absolute;bottom:0;right:0;background:rgba(0,0,0,.75);color:#fff;font-size:13px;font-weight:bold;padding:0 4px;border-radius:2px 0 0 0}
- .cell .coord{position:absolute;top:0;left:0;background:rgba(255,255,255,.85);color:#333;font-size:10px;padding:0 2px;border-radius:0 0 2px 0}
- .cell.conflict{border-color:#e33;box-shadow:0 0 0 2px #e33}
- .cell.lowconf{border-color:#e90}
- .cell.saved{border-color:#2a2}
- .cell.focused{border-color:#007acc !important;box-shadow:0 0 0 3px #007acc !important;z-index:5}
- .jump-bar{position:sticky;top:0;background:rgba(250,250,250,.96);backdrop-filter:blur(4px);z-index:100;padding:10px 0;border-bottom:1px solid #ccc;margin-bottom:14px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
- .jump-btn{padding:3px 8px;border:1px solid #bbb;border-radius:4px;text-decoration:none;font-size:12px;color:#222;background:#fff}
- .jump-btn:hover{background:#007acc;color:#fff;border-color:#007acc}
- .jump-btn small{font-size:10px;opacity:0.8}
- .stat-pill{padding:3px 9px;background:#e9edf2;border-radius:4px;font-size:12px;color:#2d3748;border:1px solid #cbd5e0;display:inline-flex;align-items:center;gap:4px}
- .total-badge{font-size:14px;font-weight:normal;color:#4a5568;background:#edf2f7;border:1px solid #cbd5e0;padding:3px 10px;border-radius:12px}
- .meta-details{margin:12px 0 16px;background:#fff;border:1px solid #d0d7de;border-radius:6px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.05)}
- .meta-summary{padding:10px 14px;background:#f6f8fa;cursor:pointer;font-size:14px;color:#24292f;border-bottom:1px solid #d0d7de;user-select:none;font-weight:600}
+ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;margin:0;padding:12px 18px 60px;background:#f8fafc;color:#1e293b}
+ .top-header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:8px}
+ h1{margin:0;font-size:20px;font-weight:700;display:flex;align-items:center;gap:10px}
+ .total-badge{font-size:13px;font-weight:normal;color:#475569;background:#e2e8f0;border:1px solid #cbd5e1;padding:2px 8px;border-radius:12px}
+ .help-card{font-size:12px;color:#64748b;margin-bottom:10px;background:#fff;padding:8px 12px;border-radius:6px;border:1px solid #e2e8f0;line-height:1.5}
+ .help-card b{color:#334155}
+ .help-card .tag-red{color:#dc2626;font-weight:600}
+ .help-card .tag-amber{color:#d97706;font-weight:600}
+ .help-card .tag-green{color:#16a34a;font-weight:600}
+
+ /* STICKY CONTROL PANEL AT TOP */
+ .sticky-panel{position:sticky;top:0;z-index:1000;background:rgba(255,255,255,.98);backdrop-filter:blur(8px);border-bottom:2px solid #0284c7;box-shadow:0 4px 14px rgba(0,0,0,.08);margin:0 -18px 14px;padding:8px 18px}
+ .sticky-main{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+ .cell-preview-card{display:flex;align-items:center;gap:8px;background:#f1f5f9;border:1px solid #cbd5e1;border-radius:6px;padding:3px 8px}
+ .preview-thumb{width:46px;height:46px;border-radius:4px;border:2px solid #0284c7;background:#fff;image-rendering:pixelated;display:block}
+ .preview-info{display:flex;flex-direction:column;gap:1px}
+ .coord-badge{font-size:12px;font-weight:700;color:#0f172a}
+ .sub-info{font-size:11px;color:#64748b}
+ .input-group{display:flex;align-items:center;gap:6px}
+ .main-input{font-size:22px;font-weight:700;width:5ch;text-align:center;padding:3px 6px;border:2px solid #0284c7;border-radius:6px;outline:none;background:#fff;color:#0f172a;transition:box-shadow .15s}
+ .main-input:focus{box-shadow:0 0 0 3px rgba(2,132,199,.35)}
+ .btn{padding:6px 11px;font-size:13px;font-weight:600;border-radius:5px;border:1px solid transparent;cursor:pointer;transition:all .1s ease;display:inline-flex;align-items:center;gap:4px}
+ .btn-save{background:#0284c7;color:#fff}
+ .btn-save:hover{background:#0369a1}
+ .btn-confirm{background:#16a34a;color:#fff}
+ .btn-confirm:hover{background:#15803d}
+ .btn-skip{background:#e2e8f0;color:#334155;border-color:#cbd5e1}
+ .btn-skip:hover{background:#cbd5e1}
+ .quick-chips{display:flex;align-items:center;gap:3px;flex-wrap:wrap}
+ .chip{padding:4px 7px;font-size:12px;font-weight:700;border-radius:4px;border:1px solid #cbd5e1;background:#fff;color:#334155;cursor:pointer}
+ .chip:hover{background:#0284c7;color:#fff;border-color:#0284c7}
+ .chip-empty{background:#f1f5f9;color:#64748b}
+ .chip-empty:hover{background:#64748b;color:#fff}
+ .sticky-actions{margin-left:auto;display:flex;align-items:center;gap:8px}
+ .stat-pill{padding:4px 8px;background:#e2e8f0;border-radius:5px;font-size:12px;color:#334155;border:1px solid #cbd5e1;font-weight:600}
+ .btn-confirm-all{background:#f8fafc;color:#475569;border:1px solid #cbd5e1;padding:5px 9px;font-size:12px}
+ .btn-confirm-all:hover{background:#e2e8f0;color:#0f172a}
+ .jump-row{display:flex;align-items:center;flex-wrap:wrap;gap:4px;margin-top:6px;padding-top:5px;border-top:1px solid #e2e8f0;font-size:11px}
+ .jump-label{font-weight:700;color:#475569;margin-right:4px}
+ .jump-btn{padding:2px 6px;border:1px solid #cbd5e1;border-radius:4px;text-decoration:none;font-size:11px;color:#334155;background:#fff}
+ .jump-btn:hover{background:#0284c7;color:#fff;border-color:#0284c7}
+ .jump-btn small{opacity:.75}
+
+ /* META CARD */
+ .meta-details{margin:8px 0 12px;background:#fff;border:1px solid #d0d7de;border-radius:6px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.05)}
+ .meta-summary{padding:8px 12px;background:#f6f8fa;cursor:pointer;font-size:13px;color:#24292f;border-bottom:1px solid #d0d7de;user-select:none;font-weight:600}
  .meta-summary:hover{background:#edf2f7}
- .meta-content{display:flex;flex-wrap:wrap;gap:20px;padding:14px;align-items:flex-start}
+ .meta-content{display:flex;flex-wrap:wrap;gap:16px;padding:12px;align-items:flex-start}
  .meta-preview{flex:0 0 auto;max-width:380px}
- .meta-img{width:100%%;max-width:380px;height:auto;border:1px solid #ccc;border-radius:4px;display:block;box-shadow:0 2px 5px rgba(0,0,0,0.1);transition:transform 0.15s}
- .meta-img:hover{transform:scale(1.02)}
- .meta-caption{font-size:11px;color:#555;margin-top:6px;line-height:1.5}
- .meta-info{flex:1 1 320px;min-width:280px}
- .meta-table{width:100%%;border-collapse:collapse;font-size:13px}
- .meta-table th{background:#f1f5f9;text-align:left;padding:6px 10px;border:1px solid #cbd5e0;color:#334155;font-size:11px;text-transform:uppercase;letter-spacing:0.5px}
- .meta-table td{padding:5px 10px;border:1px solid #e2e8f0;color:#1e293b}
+ .meta-img{width:100%%;max-width:380px;height:auto;border:1px solid #ccc;border-radius:4px;display:block;box-shadow:0 2px 5px rgba(0,0,0,.1)}
+ .meta-caption{font-size:11px;color:#555;margin-top:4px;line-height:1.4}
+ .meta-info{flex:1 1 300px;min-width:260px}
+ .meta-table{width:100%%;border-collapse:collapse;font-size:12px}
+ .meta-table th{background:#f1f5f9;text-align:left;padding:5px 8px;border:1px solid #cbd5e0;color:#334155;font-size:11px;text-transform:uppercase}
+ .meta-table td{padding:4px 8px;border:1px solid #e2e8f0;color:#1e293b}
  .meta-table tr:nth-child(even){background:#f8fafc}
- .bar{margin:14px 0} input{font-size:22px;width:9ch;padding:2px 6px}
- .help{color:#555;font-size:13px}
- button{padding:6px 12px;font-size:14px;cursor:pointer;border-radius:4px;border:1px solid #888;background:#eee}
- button:hover{background:#ddd}
+
+ /* CELLS GRID */
+ h2{margin:16px 0 6px;font-size:16px;border-bottom:2px solid #e2e8f0;padding-bottom:4px;color:#334155}
+ .cnt{font-size:13px;font-weight:normal;color:#64748b}
+ .strip{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 14px}
+ .cell{position:relative;border:3px solid #cbd5e1;cursor:pointer;border-radius:5px;background:#fff;transition:transform .1s,box-shadow .1s;scroll-margin-top:140px;scroll-margin-bottom:20px}
+ .cell:hover{transform:scale(1.08);z-index:2}
+ .cell img{width:64px;height:64px;display:block;image-rendering:pixelated;border-radius:2px}
+ .cell .lbl{position:absolute;bottom:0;right:0;background:rgba(15,23,42,.85);color:#fff;font-size:13px;font-weight:700;padding:0 4px;border-radius:3px 0 3px 0}
+ .cell .coord{position:absolute;top:0;left:0;background:rgba(255,255,255,.9);color:#334155;font-size:10px;padding:0 2px;border-radius:3px 0 3px 0;font-weight:600}
+ .cell.conflict{border-color:#ef4444;box-shadow:0 0 0 2px #ef4444}
+ .cell.lowconf{border-color:#f59e0b}
+ .cell.saved{border-color:#22c55e}
+ .cell.focused{border-color:#0284c7 !important;box-shadow:0 0 0 4px rgba(2,132,199,.5) !important;z-index:5}
 </style></head><body>
-<h1>%s %s</h1>
-<div class="help">Grouped by clue value and sorted. Click any cell to edit. Type 1..9 / 10+ / '-' for empty, Enter saves+next, Space confirms shown label (human), Esc skips.
- Red = old label disagrees with model. Amber = low whole-cell confidence. Green = saved by you.</div>
-<div style="margin:8px 0"><button onclick="confirmAll()">keep remaining as model prediction (unverified)</button></div>
-%s
-<div class="bar"><input id="inp" placeholder="value" autofocus><span class="help"> current cell: <b id="cur">-</b></span></div>
-<div class="strip-container">%s</div>
+<div class="top-header">
+ <h1>%(photo)s %(badge_html)s</h1>
+</div>
+<div class="help-card">
+ <b>Keyboard shortcuts:</b> Type digits <kbd>1</kbd>..<kbd>9</kbd> or <kbd>-</kbd> directly (always focused) &rarr; <kbd>Enter</kbd> to save & next.
+ <kbd>Space</kbd> = confirm current/prediction & next. <kbd>Esc</kbd> / <kbd>Tab</kbd> = skip to next. <kbd>Shift+Tab</kbd> = previous.
+ Legend: <span class="tag-red">Red</span> = old label disagrees. <span class="tag-amber">Amber</span> = low model confidence. <span class="tag-green">Green</span> = saved.
+</div>
+<div class="sticky-panel">
+ <div class="sticky-main">
+  <div class="cell-preview-card" title="Selected cell">
+   <img id="cur-img" class="preview-thumb" src="" alt="cell" />
+   <div class="preview-info">
+    <div class="coord-badge"><span id="cur-strip">TOP</span> <span id="cur-coord">0, 0</span></div>
+    <div class="sub-info">pred: <b id="cur-pred">-</b> | cur: <b id="cur-shown">-</b></div>
+   </div>
+  </div>
+  <div class="input-group">
+   <input id="inp" class="main-input" placeholder="val" autofocus autocomplete="off" />
+   <button type="button" class="btn btn-save" id="btn-save" title="Save entered number and go next (Enter)">⏎ Save</button>
+   <button type="button" class="btn btn-confirm" id="btn-confirm" title="Confirm current/predicted value (Space)">✓ Confirm</button>
+   <button type="button" class="btn btn-skip" id="btn-skip" title="Skip to next without saving (Esc / Tab)">Skip</button>
+  </div>
+  <div class="quick-chips">
+   <button type="button" class="chip" data-val="1">1</button>
+   <button type="button" class="chip" data-val="2">2</button>
+   <button type="button" class="chip" data-val="3">3</button>
+   <button type="button" class="chip" data-val="4">4</button>
+   <button type="button" class="chip" data-val="5">5</button>
+   <button type="button" class="chip" data-val="6">6</button>
+   <button type="button" class="chip" data-val="7">7</button>
+   <button type="button" class="chip" data-val="8">8</button>
+   <button type="button" class="chip" data-val="9">9</button>
+   <button type="button" class="chip chip-empty" data-val="-1">Empty (-)</button>
+  </div>
+  <div class="sticky-actions">
+   <span class="stat-pill">Saved: <b id="saved-cnt">%(saved_cnt)d</b> / %(total_cnt)d</span>
+   <button type="button" class="btn btn-confirm-all" onclick="confirmAll()">Confirm remaining</button>
+  </div>
+ </div>
+ <div class="jump-row">
+  <span class="jump-label">Jump to clue:</span>
+  %(jump_links)s
+ </div>
+</div>
+%(meta_html)s
+<div class="strip-container">%(body_html)s</div>
 <script>
-let cells=Array.from(document.querySelectorAll('.cell'));
-let cur=0;
-let curInfo;
-function focusCell(i){
- if(cells[cur]) cells[cur].classList.remove('focused');
- cur=i;
- let el=cells[i];
+let cells = Array.from(document.querySelectorAll('.cell'));
+let cur = 0;
+
+function focusCell(i) {
+ if (cells.length === 0) return;
+ if (i < 0) i = 0;
+ if (i >= cells.length) i = cells.length - 1;
+ if (cells[cur]) cells[cur].classList.remove('focused');
+ cur = i;
+ let el = cells[i];
  el.classList.add('focused');
- curInfo={strip:el.dataset.strip,row:el.dataset.row,col:el.dataset.col,png:el.dataset.png,pred:el.dataset.pred,old:el.dataset.old,shown:el.dataset.shown};
- document.getElementById('cur').textContent=el.dataset.strip+' '+el.dataset.row+','+el.dataset.col;
- let v = el.dataset.shown!==''?el.dataset.shown:(el.dataset.old!==''?el.dataset.old:el.dataset.pred);
- document.getElementById('inp').value= v==='-1'||v=== ''?'':v;
- el.scrollIntoView({behavior:'smooth',block:'center'});
+
+ let strip = el.dataset.strip;
+ let row = el.dataset.row;
+ let col = el.dataset.col;
+ let png = el.dataset.png;
+ let pred = el.dataset.pred;
+ let old = el.dataset.old;
+ let shown = el.dataset.shown;
+ let v = shown !== '' ? shown : (old !== '' ? old : pred);
+
+ document.getElementById('cur-img').src = '/cells/' + png;
+ document.getElementById('cur-strip').textContent = strip.toUpperCase();
+ document.getElementById('cur-coord').textContent = row + ', ' + col;
+ document.getElementById('cur-pred').textContent = pred === '-1' ? 'empty' : pred;
+ document.getElementById('cur-shown').textContent = v === '-1' ? 'empty' : v;
+
+ let inp = document.getElementById('inp');
+ inp.value = (v === '-1' || v === '') ? '' : v;
+ inp.focus();
+ inp.select();
+
+ el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
-cells.forEach((el, i)=>{
- el.addEventListener('click', ()=>focusCell(i));
+
+cells.forEach((el, i) => {
+ el.addEventListener('click', () => focusCell(i));
 });
-function saveValue(v,confirmOnly){
- let el=cells[cur];
- let body={strip:el.dataset.strip,row:+el.dataset.row,col:+el.dataset.col,value:v};
- if(!el.classList.contains('saved')){
-  let sc=document.getElementById('saved-cnt');
-  if(sc) sc.textContent = parseInt(sc.textContent||'0',10) + 1;
+
+function saveValue(v, confirmOnly) {
+ let el = cells[cur];
+ if (!el) return;
+ let body = { strip: el.dataset.strip, row: +el.dataset.row, col: +el.dataset.col, value: v };
+ if (!el.classList.contains('saved')) {
+  let sc = document.getElementById('saved-cnt');
+  if (sc) sc.textContent = parseInt(sc.textContent || '0', 10) + 1;
  }
- if(confirmOnly) fetch('/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...body,confirm:true})});
- else fetch('/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
- el.dataset.shown = confirmOnly ? el.dataset.old : String(v);
+ if (confirmOnly) {
+  fetch('/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...body, confirm: true }) });
+ } else {
+  fetch('/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+ }
+ let finalVal = confirmOnly ? (el.dataset.old !== '' ? el.dataset.old : el.dataset.pred) : String(v);
+ el.dataset.shown = finalVal;
  el.classList.add('saved');
- el.querySelector('.lbl').textContent = confirmOnly?(el.dataset.old!==''?el.dataset.old:el.dataset.pred):String(v);
- cur=(cur+1)%%cells.length;
+ el.querySelector('.lbl').textContent = finalVal === '-1' ? '' : finalVal;
+ cur = (cur + 1) %% cells.length;
  focusCell(cur);
 }
-document.getElementById('inp').addEventListener('keydown',e=>{
- if(e.key==='Enter'){let t=e.target.value.trim(); if(t!=='') saveValue(t,false);}
- else if(e.key===' '){e.preventDefault(); saveValue(null,true);}
- else if(e.key==='Escape'){cur=(cur+1)%%cells.length; focusCell(cur);}
+
+document.getElementById('btn-save').addEventListener('click', () => {
+ let inp = document.getElementById('inp');
+ let t = inp.value.trim();
+ saveValue(t !== '' ? t : '-1', false);
 });
-function confirmAll(){fetch('/confirm_all',{method:'POST'}).then(()=>location.reload());}
+
+document.getElementById('btn-confirm').addEventListener('click', () => {
+ saveValue(null, true);
+});
+
+document.getElementById('btn-skip').addEventListener('click', () => {
+ focusCell((cur + 1) %% cells.length);
+});
+
+document.querySelectorAll('.chip').forEach(btn => {
+ btn.addEventListener('click', e => {
+  e.preventDefault();
+  saveValue(btn.dataset.val, false);
+ });
+});
+
+window.addEventListener('keydown', e => {
+ if (e.altKey || e.ctrlKey || e.metaKey) return;
+ let inp = document.getElementById('inp');
+ let isInputFocused = (document.activeElement === inp);
+
+ if (e.key === 'Enter') {
+  e.preventDefault();
+  let t = inp.value.trim();
+  saveValue(t !== '' ? t : '-1', false);
+ } else if (e.key === ' ') {
+  e.preventDefault();
+  saveValue(null, true);
+ } else if (e.key === 'Escape') {
+  e.preventDefault();
+  focusCell((cur + 1) %% cells.length);
+ } else if (e.key === 'Tab') {
+  e.preventDefault();
+  if (e.shiftKey) {
+   focusCell((cur - 1 + cells.length) %% cells.length);
+  } else {
+   focusCell((cur + 1) %% cells.length);
+  }
+ } else if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+  if (!isInputFocused) {
+   e.preventDefault();
+   focusCell((cur + 1) %% cells.length);
+  }
+ } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+  if (!isInputFocused) {
+   e.preventDefault();
+   focusCell((cur - 1 + cells.length) %% cells.length);
+  }
+ } else if (/^[0-9\-]$/.test(e.key)) {
+  if (!isInputFocused) {
+   inp.focus();
+   inp.value = e.key;
+   e.preventDefault();
+  }
+ }
+});
+
+function confirmAll() {
+ if (confirm('Confirm all remaining unverified cells as model predictions?')) {
+  fetch('/confirm_all', { method: 'POST' }).then(() => location.reload());
+ }
+}
+
 focusCell(0);
 </script>
 </body></html>"""
