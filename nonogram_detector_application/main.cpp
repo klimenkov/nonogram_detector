@@ -44,11 +44,60 @@ void print_clue_grid(std::vector<std::vector<int>> const& grid)
     }
 }
 
+static cv::Mat make_detection_overlay(
+    cv::Mat const& image,
+    ng::Detection const& detection)
+{
+    cv::Mat vis = image.clone();
+    int const max_dim = std::max(image.cols, image.rows);
+    int const radius = std::max(2, max_dim / 700);
+    int const line_thickness = std::max(1, max_dim / 1500);
+
+    auto draw_grid = [&](cv::Mat const& mat, cv::Scalar pt_color, cv::Scalar line_color) {
+        if (mat.empty()) return;
+        for (int r = 0; r < mat.rows; ++r) {
+            for (int c = 0; c < mat.cols; ++c) {
+                cv::Point2f p1 = mat.at<cv::Point2f>(r, c);
+                if (p1.x < 0 || p1.y < 0) continue;
+                if (c + 1 < mat.cols) {
+                    cv::Point2f p2 = mat.at<cv::Point2f>(r, c + 1);
+                    if (p2.x >= 0 && p2.y >= 0)
+                        cv::line(vis, p1, p2, line_color, line_thickness, cv::LINE_AA);
+                }
+                if (r + 1 < mat.rows) {
+                    cv::Point2f p2 = mat.at<cv::Point2f>(r + 1, c);
+                    if (p2.x >= 0 && p2.y >= 0)
+                        cv::line(vis, p1, p2, line_color, line_thickness, cv::LINE_AA);
+                }
+            }
+        }
+        for (int r = 0; r < mat.rows; ++r) {
+            for (int c = 0; c < mat.cols; ++c) {
+                cv::Point2f p = mat.at<cv::Point2f>(r, c);
+                if (p.x >= 0 && p.y >= 0)
+                    cv::circle(vis, p, radius, pt_color, -1, cv::LINE_AA);
+            }
+        }
+    };
+
+    draw_grid(detection.main, cv::Scalar(0, 0, 255), cv::Scalar(0, 70, 255));
+    draw_grid(detection.top, cv::Scalar(0, 230, 0), cv::Scalar(0, 180, 0));
+    draw_grid(detection.left, cv::Scalar(255, 180, 0), cv::Scalar(220, 140, 0));
+
+    return vis;
+}
+
 bool export_clue_cells(
     std::string const& photo,
     std::vector<std::vector<ng::ClueCellInfo>> const& top_info,
     std::vector<std::vector<ng::ClueCellInfo>> const& left_info,
-    std::filesystem::path const& dir)
+    std::filesystem::path const& dir,
+    cv::Mat const& image,
+    ng::Detection const& detection,
+    int const resize_max,
+    int const threshold_block_size,
+    double const threshold_c,
+    double const similarity_ratio)
 {
     std::error_code ec;
     std::filesystem::create_directories(dir, ec);
@@ -56,6 +105,22 @@ bool export_clue_cells(
     {
         std::cerr << "NG_EXPORT_CELLS: cannot create " << dir << ": " << ec.message() << "\n";
         return false;
+    }
+
+    // Save detection visualization overlay
+    if (!image.empty() && detection.found)
+    {
+        cv::Mat vis = make_detection_overlay(image, detection);
+        int const max_vis_dim = std::max(vis.cols, vis.rows);
+        if (max_vis_dim > 1600)
+        {
+            float const factor = 1600.0f / static_cast<float>(max_vis_dim);
+            cv::Mat vis_small;
+            cv::resize(vis, vis_small, cv::Size(), factor, factor, cv::INTER_AREA);
+            vis = vis_small;
+        }
+        std::vector<int> jpeg_params = { cv::IMWRITE_JPEG_QUALITY, 85 };
+        cv::imwrite((dir / "detection.jpg").string(), vis, jpeg_params);
     }
 
     struct Entry
@@ -99,6 +164,38 @@ bool export_clue_cells(
     }
     out << "{\n";
     out << "  \"photo\": \"" << photo << "\",\n";
+    out << "  \"meta\": {\n";
+    out << "    \"detection_image\": \"detection.jpg\",\n";
+    out << "    \"image_width\": " << image.cols << ",\n";
+    out << "    \"image_height\": " << image.rows << ",\n";
+    if (!detection.main.empty())
+    {
+        out << "    \"main_grid\": {\"crossings_rows\": " << detection.main.rows
+            << ", \"crossings_cols\": " << detection.main.cols
+            << ", \"cells_width\": " << std::max(0, detection.main.cols - 1)
+            << ", \"cells_height\": " << std::max(0, detection.main.rows - 1) << "},\n";
+    }
+    if (!detection.top.empty())
+    {
+        out << "    \"top_grid\": {\"crossings_rows\": " << detection.top.rows
+            << ", \"crossings_cols\": " << detection.top.cols
+            << ", \"cells_width\": " << std::max(0, detection.top.cols - 1)
+            << ", \"cells_height\": " << std::max(0, detection.top.rows - 1) << "},\n";
+    }
+    if (!detection.left.empty())
+    {
+        out << "    \"left_grid\": {\"crossings_rows\": " << detection.left.rows
+            << ", \"crossings_cols\": " << detection.left.cols
+            << ", \"cells_width\": " << std::max(0, detection.left.cols - 1)
+            << ", \"cells_height\": " << std::max(0, detection.left.rows - 1) << "},\n";
+    }
+    out << "    \"params\": {\n";
+    out << "      \"resize_max\": " << resize_max << ",\n";
+    out << "      \"threshold_block_size\": " << threshold_block_size << ",\n";
+    out << "      \"threshold_c\": " << threshold_c << ",\n";
+    out << "      \"similarity_ratio_min\": " << similarity_ratio << "\n";
+    out << "    }\n";
+    out << "  },\n";
     out << "  \"cells\": [\n";
     for (std::size_t i = 0; i < entries.size(); ++i)
     {
@@ -421,6 +518,9 @@ int main(int argc, char** argv)
 
     std::string const image_path = argv[1];
     int const resize_max = argc > 2 ? std::atoi(argv[2]) : 1200;
+    int const threshold_block_size = 15;
+    double const threshold_c = 10.0;
+    double const similarity_ratio_min = 0.80;
 
     auto image = cv::imread(image_path);
     if (image.empty())
@@ -429,11 +529,15 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    ng::CrossLocsDetector cross_loc_detector(resize_max, 15, 10.0, 5, 50, 0.9);
+    ng::CrossLocsDetector cross_loc_detector(
+        resize_max, threshold_block_size, threshold_c, 5, 50, similarity_ratio_min);
 
     auto const detection = cross_loc_detector.detect(image);
 
     std::cout << "found=" << (detection.found ? "true" : "false") << "\n";
+    std::cout << "main=" << detection.main.size()
+              << " top=" << detection.top.size()
+              << " left=" << detection.left.size() << "\n";
 
     if (!detection.found)
     {
@@ -521,7 +625,17 @@ int main(int argc, char** argv)
             {
                 std::filesystem::path photo_id =
                     std::filesystem::path(image_path).stem();
-                export_clue_cells(photo_id.string(), top_info, left_info, cells_dir);
+                export_clue_cells(
+                    photo_id.string(),
+                    top_info,
+                    left_info,
+                    cells_dir,
+                    image,
+                    detection,
+                    resize_max,
+                    threshold_block_size,
+                    threshold_c,
+                    similarity_ratio_min);
             }
             else
             {

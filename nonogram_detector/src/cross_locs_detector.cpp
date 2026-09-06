@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "cross_locs_detector.hpp"
+#include "grid_smooth_fit.hpp"
 #include "image_operations.hpp"
 #include "masks.hpp"
 
@@ -221,6 +222,8 @@ Detection CrossLocsDetector::detect_impl(
     int const ink_window_radius = std::max(4, cell_side_length / 4);
     refine_cross_locs_ink(image_gray, cross_locs_main_mat, ink_window_radius);
 
+    cross_locs_main_mat = grid_smooth_fit_approach1(cross_locs_main_mat, 3, 2);
+
     detection.found = true;
     detection.main = scale_cross_locs_mat(cross_locs_main_mat, scale);
 
@@ -232,7 +235,6 @@ Detection CrossLocsDetector::detect_impl(
 
     if (!cross_locs_top_mat.empty())
     {
-        refine_cross_locs_ink(image_gray, cross_locs_top_mat, ink_window_radius);
         detection.top = scale_cross_locs_mat(cross_locs_top_mat, scale);
     }
 
@@ -244,7 +246,6 @@ Detection CrossLocsDetector::detect_impl(
 
     if (!cross_locs_left_mat.empty())
     {
-        refine_cross_locs_ink(image_gray, cross_locs_left_mat, ink_window_radius);
         detection.left = scale_cross_locs_mat(cross_locs_left_mat, scale);
     }
 
@@ -295,6 +296,27 @@ cv::Size CrossLocsDetector::get_cross_loc_search_roi(int const cell_side_length)
     // just covers the cross extent plus small per-step drift, and is ~56%
     // smaller in area than the previous 2x box.
     return cv::Size(3 * cell_side_length / 2, 3 * cell_side_length / 2);
+}
+
+
+cv::Size CrossLocsDetector::get_cross_loc_search_roi_top(int const cell_side_length)
+{
+    // For top clue search, columns run vertically. To avoid jumping to adjacent
+    // columns (e.g. thicker outer borders ~1.0 cell side away), limit horizontal
+    // search radius to cell_side_length / 3, while allowing standard height.
+    int const rx = std::max(4, cell_side_length / 3);
+    int const ry = 3 * cell_side_length / 4;
+    return cv::Size(2 * rx + 1, 2 * ry + 1);
+}
+
+
+cv::Size CrossLocsDetector::get_cross_loc_search_roi_left(int const cell_side_length)
+{
+    // For left clue search, rows run horizontally. To avoid jumping to adjacent
+    // rows, limit vertical search radius to cell_side_length / 3.
+    int const rx = 3 * cell_side_length / 4;
+    int const ry = std::max(4, cell_side_length / 3);
+    return cv::Size(2 * rx + 1, 2 * ry + 1);
 }
 
 
@@ -359,7 +381,14 @@ std::map<cv::Point, cv::Point2f, PointCompare> CrossLocsDetector::get_cross_locs
                     indices_queue.push(indices_neighbor);
                     was_in_indices_queue_set.insert(indices_neighbor);
 
-                    auto const cross_loc_neighbor_init = cross_loc + cross_loc_deltas[i];
+                    cv::Point const indices_prev = indices - indices_deltas[i];
+                    cv::Point2f step = cross_loc_deltas[i];
+                    auto it_prev = cross_locs_map.find(indices_prev);
+                    if (it_prev != cross_locs_map.end())
+                    {
+                        step = cross_loc - it_prev->second;
+                    }
+                    auto const cross_loc_neighbor_init = cross_loc + step;
                     cross_locs_init_map[indices_neighbor] = cross_loc_neighbor_init;
                 }
             }
@@ -411,7 +440,19 @@ cv::Mat CrossLocsDetector::convert_to_mat(
         return cv::Mat();
     }
 
-    auto const bounding_rectangle = get_bounding_rectangle(cross_locs_map);
+    return convert_to_mat(cross_locs_map, get_bounding_rectangle(cross_locs_map));
+}
+
+
+cv::Mat CrossLocsDetector::convert_to_mat(
+    std::map<cv::Point, cv::Point2f, PointCompare> const& cross_locs_map,
+    cv::Rect const& bounding_rectangle)
+{
+    if (cross_locs_map.empty() || bounding_rectangle.empty())
+    {
+        return cv::Mat();
+    }
+
     auto const cross_loc_mat_size = bounding_rectangle.size() + cv::Size(1, 1);
 
     cv::Mat cross_locs_mat(cross_loc_mat_size, CV_32FC2, cv::Scalar(-1.0, -1.0));
@@ -469,48 +510,26 @@ cv::Mat CrossLocsDetector::augment(
                 auto const indices_neighbor_1 = indices + indices_delta;
                 auto const indices_neighbor_2 = indices_neighbor_1 + indices_delta;
 
-                std::vector<cv::Point> const indices_neighbors = {
-                    indices_neighbor_1,
-                    /*indices_neighbor_2*/ };
-
-                auto const indices_neighbors_are_in_range = std::all_of(
-                    indices_neighbors.begin(),
-                    indices_neighbors.end(),
-                    [&indices_roi](cv::Point const& indices)
-                    {
-                        return indices_roi.contains(indices);
-                    });
-
-                if (indices_neighbors_are_in_range)
+                bool const n1_in_range = indices_roi.contains(indices_neighbor_1);
+                if (n1_in_range && cross_locs_mat_augmented.at<cv::Point2f>(indices_neighbor_1) != cv::Point2f(-1.0f, -1.0f))
                 {
-                    auto const indices_neighbors_have_value = std::all_of(
-                        indices_neighbors.begin(),
-                        indices_neighbors.end(),
-                        [&cross_locs_mat_augmented](cv::Point const& indices)
-                        {
-                            return cross_locs_mat_augmented.at<cv::Point2f>(indices) != cv::Point2f(-1.0f, -1.0f);
-                        });
-
-                    if (indices_neighbors_have_value)
+                    cv::Point2f const p1 = cross_locs_mat_augmented.at<cv::Point2f>(indices_neighbor_1);
+                    bool const n2_in_range = indices_roi.contains(indices_neighbor_2);
+                    cv::Point2f cross_loc_interpolated;
+                    if (n2_in_range && cross_locs_mat_augmented.at<cv::Point2f>(indices_neighbor_2) != cv::Point2f(-1.0f, -1.0f))
                     {
-                        std::vector<cv::Point2f> neighbors;
-                        std::transform(
-                            indices_neighbors.begin(),
-                            indices_neighbors.end(),
-                            std::back_inserter(neighbors),
-                            [&cross_locs_mat_augmented](cv::Point const& indices)
-                            {
-                                return cross_locs_mat_augmented.at<cv::Point2f>(indices);
-                            });
-
-                        auto const direction = indices - indices_neighbors[0];
+                        cv::Point2f const p2 = cross_locs_mat_augmented.at<cv::Point2f>(indices_neighbor_2);
+                        cross_loc_interpolated = p1 + (p1 - p2);
+                    }
+                    else
+                    {
+                        auto const direction = indices - indices_neighbor_1;
                         cv::Point2f const direction_float(
                             static_cast<float>(direction.x), static_cast<float>(direction.y));
-                        auto const cross_loc_interpolated =
-                            neighbors[0] + static_cast<float>(cell_side_length) * direction_float;
-
-                        cross_locs_interpolated.push_back(cross_loc_interpolated);
+                        cross_loc_interpolated =
+                            p1 + static_cast<float>(cell_side_length) * direction_float;
                     }
+                    cross_locs_interpolated.push_back(cross_loc_interpolated);
                 }
             }
 
@@ -550,7 +569,24 @@ cv::Mat CrossLocsDetector::convert_pad_augment(
     cv::Size const& pad,
     int const cell_side_length)
 {
-    auto const cross_locs_mat = convert_to_mat(cross_locs_map);
+    if (cross_locs_map.empty())
+    {
+        return cv::Mat();
+    }
+
+    return convert_pad_augment(
+        cross_locs_map, get_bounding_rectangle(cross_locs_map), offset, pad, cell_side_length);
+}
+
+
+cv::Mat CrossLocsDetector::convert_pad_augment(
+    std::map<cv::Point, cv::Point2f, PointCompare> const& cross_locs_map,
+    cv::Rect const& bounding_rectangle,
+    cv::Point const& offset,
+    cv::Size const& pad,
+    int const cell_side_length)
+{
+    auto const cross_locs_mat = convert_to_mat(cross_locs_map, bounding_rectangle);
 
     if (cross_locs_mat.empty())
     {
@@ -652,20 +688,203 @@ cv::Mat CrossLocsDetector::get_cross_locs_top_mat(
     std::tie(mask_cross, mask_cross_perimeter) =
         get_mask_cross(cell_side_length_odd);
 
-    auto const cross_locs_top_map = get_cross_locs_map(
+    auto cross_locs_top_map = get_cross_locs_map(
         image_thresholded,
         indices_neighbors_init,
         cross_locs_neighbors_init,
         indices_deltas,
         cross_loc_deltas,
-        get_cross_loc_search_roi(cell_side_length),
+        get_cross_loc_search_roi_top(cell_side_length),
         mask_cross,
         mask_cross_perimeter,
         similarity_ratio_min);
 
-    // Add extra line to the top and extra column to the right
-    return convert_pad_augment(
-        cross_locs_top_map, cv::Point(0, 1), cv::Size(1, 1), cell_side_length);
+    if (cross_locs_top_map.empty())
+    {
+        return cv::Mat();
+    }
+
+    auto bbox = get_bounding_rectangle(cross_locs_top_map);
+
+    if (bbox.br().x < cross_locs_main_mat.cols - 2)
+    {
+        std::vector<cv::Point> missing_indices;
+        std::vector<cv::Point2f> missing_locs;
+        for (int x = bbox.br().x + 1; x < cross_locs_main_mat.cols - 1; ++x)
+        {
+            cv::Point const idx(x, 0);
+            auto const& pt = cross_locs_main_mat.at<cv::Point2f>(idx);
+            if (pt != cv::Point2f(-1.0f, -1.0f))
+            {
+                missing_indices.push_back(idx);
+                missing_locs.push_back(pt);
+            }
+        }
+
+        if (!missing_indices.empty())
+        {
+            double const similarity_ratio_min_loose = 0.75;
+            auto const loose_map = get_cross_locs_map(
+                image_thresholded,
+                missing_indices,
+                missing_locs,
+                indices_deltas,
+                cross_loc_deltas,
+                get_cross_loc_search_roi_top(cell_side_length),
+                mask_cross,
+                mask_cross_perimeter,
+                similarity_ratio_min_loose);
+
+            int const min_x = bbox.br().x + 1;
+            for (auto const& item : loose_map)
+            {
+                if (item.first.x >= min_x && item.first.x < cross_locs_main_mat.cols - 1)
+                {
+                    cross_locs_top_map[item.first] = item.second;
+                }
+            }
+        }
+        bbox = get_bounding_rectangle(cross_locs_top_map);
+    }
+
+    int const num_clue_rows = std::abs(bbox.tl().y);
+    if (num_clue_rows <= 0)
+    {
+        return cv::Mat();
+    }
+    int const num_top_rows = num_clue_rows + 2;
+    int const num_cols = cross_locs_main_mat.cols;
+
+    std::vector<std::vector<float>> row_h(num_top_rows, std::vector<float>(num_cols, 0.0f));
+
+    for (int y = -1; y >= bbox.tl().y; --y)
+    {
+        int const r = num_top_rows - 1 + y;
+        std::vector<double> xs, hs;
+        for (int c = 0; c < num_cols - 1; ++c)
+        {
+            auto it = cross_locs_top_map.find(cv::Point(c, y));
+            if (it != cross_locs_top_map.end())
+            {
+                int const k = std::min(5, cross_locs_main_mat.rows - 1);
+                cv::Point2f const p0 = cross_locs_main_mat.at<cv::Point2f>(0, c);
+                cv::Point2f const pk = cross_locs_main_mat.at<cv::Point2f>(k, c);
+                cv::Point2f u = p0 - pk;
+                float const len = cv::norm(u);
+                if (len > 1e-3f)
+                {
+                    u /= len;
+                    float const h = (it->second - p0).dot(u);
+                    xs.push_back(c);
+                    hs.push_back(h);
+                }
+            }
+        }
+
+        if (xs.size() >= 2)
+        {
+            double sum_x = 0, sum_y = 0;
+            for (size_t i = 0; i < xs.size(); ++i)
+            {
+                sum_x += xs[i];
+                sum_y += hs[i];
+            }
+            double mean_x = sum_x / xs.size();
+            double mean_y = sum_y / xs.size();
+            double sxx = 0, sxy = 0;
+            for (size_t i = 0; i < xs.size(); ++i)
+            {
+                double const dx = xs[i] - mean_x;
+                double const dy = hs[i] - mean_y;
+                sxx += dx * dx;
+                sxy += dx * dy;
+            }
+            double b = (sxx > 1e-6) ? (sxy / sxx) : 0.0;
+            double a = mean_y - b * mean_x;
+
+            std::vector<double> xs_clean, hs_clean;
+            double const max_residual = 0.4 * cell_side_length;
+            for (size_t i = 0; i < xs.size(); ++i)
+            {
+                if (std::abs(hs[i] - (a + b * xs[i])) < max_residual)
+                {
+                    xs_clean.push_back(xs[i]);
+                    hs_clean.push_back(hs[i]);
+                }
+            }
+            if (xs_clean.size() >= 2)
+            {
+                sum_x = 0; sum_y = 0;
+                for (size_t i = 0; i < xs_clean.size(); ++i)
+                {
+                    sum_x += xs_clean[i];
+                    sum_y += hs_clean[i];
+                }
+                mean_x = sum_x / xs_clean.size();
+                mean_y = sum_y / xs_clean.size();
+                sxx = 0; sxy = 0;
+                for (size_t i = 0; i < xs_clean.size(); ++i)
+                {
+                    double const dx = xs_clean[i] - mean_x;
+                    double const dy = hs_clean[i] - mean_y;
+                    sxx += dx * dx;
+                    sxy += dx * dy;
+                }
+                b = (sxx > 1e-6) ? (sxy / sxx) : 0.0;
+                a = mean_y - b * mean_x;
+            }
+
+            for (int c = 0; c < num_cols; ++c)
+            {
+                row_h[r][c] = static_cast<float>(a + b * c);
+            }
+        }
+        else if (!xs.empty())
+        {
+            for (int c = 0; c < num_cols; ++c)
+            {
+                row_h[r][c] = static_cast<float>(hs[0]);
+            }
+        }
+        else
+        {
+            for (int c = 0; c < num_cols; ++c)
+            {
+                row_h[r][c] = row_h[r + 1][c] + static_cast<float>(cell_side_length);
+            }
+        }
+    }
+
+    for (int c = 0; c < num_cols; ++c)
+    {
+        row_h[0][c] = 2.0f * row_h[1][c] - (num_clue_rows >= 2 ? row_h[2][c] : 0.0f);
+    }
+
+    cv::Mat cross_locs_top_mat(num_top_rows, num_cols, CV_32FC2);
+    for (int c = 0; c < num_cols; ++c)
+    {
+        int const k = std::min(5, cross_locs_main_mat.rows - 1);
+        cv::Point2f const p0 = cross_locs_main_mat.at<cv::Point2f>(0, c);
+        cv::Point2f const pk = cross_locs_main_mat.at<cv::Point2f>(k, c);
+        cv::Point2f u = p0 - pk;
+        float const len = cv::norm(u);
+        if (len > 1e-3f)
+        {
+            u /= len;
+        }
+        else
+        {
+            u = cv::Point2f(0.0f, -1.0f);
+        }
+
+        for (int r = 0; r < num_top_rows - 1; ++r)
+        {
+            cross_locs_top_mat.at<cv::Point2f>(r, c) = p0 + row_h[r][c] * u;
+        }
+        cross_locs_top_mat.at<cv::Point2f>(num_top_rows - 1, c) = p0;
+    }
+
+    return cross_locs_top_mat;
 }
 
 
@@ -678,8 +897,7 @@ cv::Mat CrossLocsDetector::get_cross_locs_left_mat(
     std::vector<cv::Point> indices_neighbors_init;
     std::vector<cv::Point2f> cross_locs_neighbors_init;
 
-    // The last is not a cross
-    for (auto y = 0; y < cross_locs_main_mat.rows - 1; ++y)
+    for (auto y = 0; y < cross_locs_main_mat.rows; ++y)
     {
         cv::Point const indices(0, y);
         auto const& cross_loc = cross_locs_main_mat.at<cv::Point2f>(indices);
@@ -710,21 +928,223 @@ cv::Mat CrossLocsDetector::get_cross_locs_left_mat(
     std::tie(mask_cross, mask_cross_perimeter) =
         ng::get_mask_cross(cell_side_length_odd);
 
-    auto const cross_locs_left_map = get_cross_locs_map(
+    auto cross_locs_left_map = get_cross_locs_map(
         image_thresholded,
         indices_neighbors_init,
         cross_locs_neighbors_init,
         indices_deltas,
         cross_loc_deltas,
-        get_cross_loc_search_roi(cell_side_length),
+        get_cross_loc_search_roi_left(cell_side_length),
         mask_cross,
         mask_cross_perimeter,
         similarity_ratio_min);
 
-    // Add extra line to the bottom and extra column to the left
-    return convert_pad_augment(
-        cross_locs_left_map, cv::Point(1, 0), cv::Size(1, 1), cell_side_length);
+    if (cross_locs_left_map.empty())
+    {
+        return cv::Mat();
+    }
+
+    auto bbox = get_bounding_rectangle(cross_locs_left_map);
+    if (bbox.br().y < cross_locs_main_mat.rows - 1)
+    {
+        std::vector<cv::Point> missing_indices;
+        std::vector<cv::Point2f> missing_locs;
+        for (int y = bbox.br().y + 1; y < cross_locs_main_mat.rows; ++y)
+        {
+            cv::Point const idx(0, y);
+            auto const& pt = cross_locs_main_mat.at<cv::Point2f>(idx);
+            if (pt != cv::Point2f(-1.0f, -1.0f))
+            {
+                missing_indices.push_back(idx);
+                missing_locs.push_back(pt);
+            }
+        }
+
+        if (!missing_indices.empty())
+        {
+            double const similarity_ratio_min_loose = 0.75;
+            auto const loose_map = get_cross_locs_map(
+                image_thresholded,
+                missing_indices,
+                missing_locs,
+                indices_deltas,
+                cross_loc_deltas,
+                get_cross_loc_search_roi_left(cell_side_length),
+                mask_cross,
+                mask_cross_perimeter,
+                similarity_ratio_min_loose);
+
+            int const min_y = bbox.br().y + 1;
+            for (auto const& item : loose_map)
+            {
+                if (item.first.y >= min_y && item.first.y < cross_locs_main_mat.rows)
+                {
+                    cross_locs_left_map[item.first] = item.second;
+                }
+            }
+        }
+        bbox = get_bounding_rectangle(cross_locs_left_map);
+    }
+
+    int const num_clue_cols = std::abs(bbox.tl().x);
+    if (num_clue_cols <= 0)
+    {
+        return cv::Mat();
+    }
+    int const num_left_cols = num_clue_cols + 2;
+    int const num_rows = cross_locs_main_mat.rows;
+
+    std::vector<std::vector<float>> col_w(num_left_cols, std::vector<float>(num_rows, 0.0f));
+
+    std::vector<cv::Point2f> row_u(num_rows);
+    for (int r = 0; r < num_rows; ++r)
+    {
+        cv::Point2f const p0 = cross_locs_main_mat.at<cv::Point2f>(r, 0);
+        cv::Point2f sum_v(0.0f, 0.0f);
+        int count = 0;
+        for (int x = -1; x >= bbox.tl().x; --x)
+        {
+            auto it = cross_locs_left_map.find(cv::Point(x, r));
+            if (it != cross_locs_left_map.end())
+            {
+                sum_v += (it->second - p0);
+                count++;
+            }
+        }
+        if (count > 0 && cv::norm(sum_v) > 1e-3f)
+        {
+            row_u[r] = sum_v / cv::norm(sum_v);
+        }
+        else
+        {
+            int const k = std::min(5, cross_locs_main_mat.cols - 1);
+            cv::Point2f const pk = cross_locs_main_mat.at<cv::Point2f>(r, k);
+            cv::Point2f u = p0 - pk;
+            if (cv::norm(u) > 1e-3f)
+            {
+                row_u[r] = u / cv::norm(u);
+            }
+            else
+            {
+                row_u[r] = cv::Point2f(-1.0f, 0.0f);
+            }
+        }
+    }
+
+    for (int x = -1; x >= bbox.tl().x; --x)
+    {
+        int const c = num_left_cols - 1 + x;
+        std::vector<double> ys, ws;
+        for (int r = 0; r < num_rows; ++r)
+        {
+            auto it = cross_locs_left_map.find(cv::Point(x, r));
+            if (it != cross_locs_left_map.end())
+            {
+                cv::Point2f const p0 = cross_locs_main_mat.at<cv::Point2f>(r, 0);
+                cv::Point2f const u = row_u[r];
+                float const w = (it->second - p0).dot(u);
+                ys.push_back(r);
+                ws.push_back(w);
+            }
+        }
+
+        if (ys.size() >= 2)
+        {
+            double sum_x = 0, sum_y = 0;
+            for (size_t i = 0; i < ys.size(); ++i)
+            {
+                sum_x += ys[i];
+                sum_y += ws[i];
+            }
+            double mean_x = sum_x / ys.size();
+            double mean_y = sum_y / ys.size();
+            double sxx = 0, sxy = 0;
+            for (size_t i = 0; i < ys.size(); ++i)
+            {
+                double const dx = ys[i] - mean_x;
+                double const dy = ws[i] - mean_y;
+                sxx += dx * dx;
+                sxy += dx * dy;
+            }
+            double b = (sxx > 1e-6) ? (sxy / sxx) : 0.0;
+            double a = mean_y - b * mean_x;
+
+            std::vector<double> ys_clean, ws_clean;
+            double const max_residual = 0.4 * cell_side_length;
+            for (size_t i = 0; i < ys.size(); ++i)
+            {
+                if (std::abs(ws[i] - (a + b * ys[i])) < max_residual)
+                {
+                    ys_clean.push_back(ys[i]);
+                    ws_clean.push_back(ws[i]);
+                }
+            }
+            if (ys_clean.size() >= 2)
+            {
+                sum_x = 0; sum_y = 0;
+                for (size_t i = 0; i < ys_clean.size(); ++i)
+                {
+                    sum_x += ys_clean[i];
+                    sum_y += ws_clean[i];
+                }
+                mean_x = sum_x / ys_clean.size();
+                mean_y = sum_y / ys_clean.size();
+                sxx = 0; sxy = 0;
+                for (size_t i = 0; i < ys_clean.size(); ++i)
+                {
+                    double const dx = ys_clean[i] - mean_x;
+                    double const dy = ws_clean[i] - mean_y;
+                    sxx += dx * dx;
+                    sxy += dx * dy;
+                }
+                b = (sxx > 1e-6) ? (sxy / sxx) : 0.0;
+                a = mean_y - b * mean_x;
+            }
+
+            for (int r = 0; r < num_rows; ++r)
+            {
+                col_w[c][r] = static_cast<float>(a + b * r);
+            }
+        }
+        else if (!ys.empty())
+        {
+            for (int r = 0; r < num_rows; ++r)
+            {
+                col_w[c][r] = static_cast<float>(ws[0]);
+            }
+        }
+        else
+        {
+            for (int r = 0; r < num_rows; ++r)
+            {
+                col_w[c][r] = col_w[c + 1][r] + static_cast<float>(cell_side_length);
+            }
+        }
+    }
+
+    for (int r = 0; r < num_rows; ++r)
+    {
+        col_w[0][r] = 2.0f * col_w[1][r] - (num_clue_cols >= 2 ? col_w[2][r] : 0.0f);
+    }
+
+    cv::Mat cross_locs_left_mat(num_rows, num_left_cols, CV_32FC2);
+    for (int r = 0; r < num_rows; ++r)
+    {
+        cv::Point2f const p0 = cross_locs_main_mat.at<cv::Point2f>(r, 0);
+        cv::Point2f const u = row_u[r];
+
+        for (int c = 0; c < num_left_cols - 1; ++c)
+        {
+            cross_locs_left_mat.at<cv::Point2f>(r, c) = p0 + col_w[c][r] * u;
+        }
+        cross_locs_left_mat.at<cv::Point2f>(r, num_left_cols - 1) = p0;
+    }
+
+    return cross_locs_left_mat;
 }
+
+
+
 
 
 cv::Mat CrossLocsDetector::scale_cross_locs_mat(

@@ -82,6 +82,8 @@ private:
 
 
     static cv::Size get_cross_loc_search_roi(int cell_side_length);
+    static cv::Size get_cross_loc_search_roi_top(int cell_side_length);
+    static cv::Size get_cross_loc_search_roi_left(int cell_side_length);
 
 
     static cv::Rect get_bounding_rectangle(
@@ -91,6 +93,10 @@ private:
     static cv::Mat convert_to_mat(
         std::map<cv::Point, cv::Point2f, PointCompare> const& cross_locs_map);
 
+    static cv::Mat convert_to_mat(
+        std::map<cv::Point, cv::Point2f, PointCompare> const& cross_locs_map,
+        cv::Rect const& bounding_rectangle);
+
 
     // Shared tail of the cross-loc matrix builders: converts the BFS map to a
     // dense matrix, embeds it into a larger sentinel-filled canvas at <offset>
@@ -98,6 +104,13 @@ private:
     // empty Mat when the map converted to nothing.
     static cv::Mat convert_pad_augment(
         std::map<cv::Point, cv::Point2f, PointCompare> const& cross_locs_map,
+        cv::Point const& offset,
+        cv::Size const& pad,
+        int const cell_side_length);
+
+    static cv::Mat convert_pad_augment(
+        std::map<cv::Point, cv::Point2f, PointCompare> const& cross_locs_map,
+        cv::Rect const& bounding_rectangle,
         cv::Point const& offset,
         cv::Size const& pad,
         int const cell_side_length);
@@ -127,6 +140,8 @@ private:
         cv::Mat const& cross_locs_main_mat,
         int const cell_side_length,
         double const similarity_ratio_min);
+
+
 
 
     static cv::Mat scale_cross_locs_mat(

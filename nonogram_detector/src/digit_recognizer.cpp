@@ -59,19 +59,28 @@ bool DigitRecognizer::prepare_input(cv::Mat const& cell, cv::Mat& out_blob)
     else
         gray = cell;
 
+    // Crop inward past the surrounding grid-frame ring. The frame always sits
+    // along the cell border, so removing this margin leaves only the digit's
+    // ink inside the crop.
+    int const margin = std::max(2, static_cast<int>(std::round(gray.cols * 0.2)));
+    cv::Rect inner(margin, margin,
+        gray.cols - 2 * margin, gray.rows - 2 * margin);
+    if (inner.width < 3 || inner.height < 3)
+        return false;
+
+    // Minimum contrast gate: an empty paper cell has virtually flat brightness
+    // (contrast < 20), while real printed digits exhibit contrast > 75. Reject
+    // empty cells before thresholding so Otsu never amplifies paper grain/sensor
+    // noise into spurious digit predictions.
+    double in_min = 0.0, in_max = 0.0;
+    cv::minMaxLoc(gray(inner), &in_min, &in_max);
+    if (in_max - in_min < 35.0)
+        return false;
+
     // Isolate the dark digit from the (lighter) paper: result is white digit on
     // black, which is the polarity MNIST expects.
     cv::Mat binary;
     cv::threshold(gray, binary, 0, 255, cv::THRESH_BINARY_INV | cv::THRESH_OTSU);
-
-    // Crop inward past the surrounding grid-frame ring. The frame always sits
-    // along the cell border, so removing this margin leaves only the digit's
-    // ink inside the crop.
-    int const margin = std::max(2, static_cast<int>(std::round(binary.cols * 0.2)));
-    cv::Rect inner(margin, margin,
-        binary.cols - 2 * margin, binary.rows - 2 * margin);
-    if (inner.width < 3 || inner.height < 3)
-        return false;
 
     // Union of all foreground pixels: the margin ring already stripped the
     // grid frame, so remaining ink is the digit. A thin digit (a "1" with a
@@ -79,10 +88,10 @@ bool DigitRecognizer::prepare_input(cv::Mat const& cell, cv::Mat& out_blob)
     // empty cells fail the area gate.
     std::vector<cv::Point> nz;
     cv::findNonZero(binary(inner), nz);
-    if (nz.size() < 8)
+    if (nz.size() < 10)
         return false;
     cv::Rect bbox = cv::boundingRect(nz);
-    if (bbox.width < 2 || bbox.height < 2)
+    if (bbox.width < 2 || bbox.height < 5)
         return false;
 
     // Translate back into full-cell coordinates and add a small pad.

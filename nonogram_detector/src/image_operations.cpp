@@ -140,6 +140,7 @@ void refine_cross_locs_ink(
                 continue;
             }
 
+            cv::Point2f const initial_cross_loc = cross_loc;
             for (int pass = 0; pass < MAX_PASSES; ++pass)
             {
                 int const px = cvRound(cross_loc.x);
@@ -213,6 +214,13 @@ void refine_cross_locs_ink(
                 refine_axis(col_mass, x0, bx0 - x0, bx1 - x0, INK_MASS_MIN, cross_loc.x);
                 refine_axis(row_mass, y0, by0 - y0, by1 - y0, INK_MASS_MIN, cross_loc.y);
 
+                float const max_shift = std::max(2.5f, 0.25f * window_radius);
+                float const shift_dist = cv::norm(cross_loc - initial_cross_loc);
+                if (shift_dist > max_shift)
+                {
+                    cross_loc = initial_cross_loc + (cross_loc - initial_cross_loc) * (max_shift / shift_dist);
+                }
+
                 bool const settled =
                     std::fabs(cross_loc.x - x_before) < CONVERGED_MOVE &&
                     std::fabs(cross_loc.y - y_before) < CONVERGED_MOVE;
@@ -280,18 +288,42 @@ std::pair<bool, cv::Point2f> find_kernel_loc(
         return std::make_pair(false, cv::Point2f(-1.0f, -1.0f));
     }
 
-    bool kernel_loc_found;
-    cv::Point2f kernel_loc;
-    std::tie(kernel_loc_found, kernel_loc) = find_kernel_loc(
-        image_thresholded(roi),
-        kernel,
-        max,
-        similarity_ratio_min,
-        anchor);
+    int const pad_x = kernel.cols / 2;
+    int const pad_y = kernel.rows / 2;
+    cv::Rect const ext_roi_desired(
+        roi.x - pad_x, roi.y - pad_y,
+        roi.width + 2 * pad_x, roi.height + 2 * pad_y);
+    cv::Rect const ext_roi = ext_roi_desired & image_thresholded_roi;
 
-    return kernel_loc_found ?
-        std::make_pair(true, kernel_loc + cv::Point2f(roi.tl())) :
-        std::make_pair(false, cv::Point2f(-1.0f, -1.0f));
+    cv::Mat image_filtered;
+    cv::filter2D(
+        image_thresholded(ext_roi),
+        image_filtered,
+        CV_32F,
+        kernel,
+        anchor,
+        0.0,
+        cv::BORDER_ISOLATED);
+
+    image_filtered /= max;
+
+    cv::Rect const sub_roi(
+        roi.x - ext_roi.x, roi.y - ext_roi.y,
+        roi.width, roi.height);
+    cv::Mat roi_filtered = image_filtered(sub_roi);
+
+    double peak_max;
+    cv::Point peak_max_loc;
+    cv::minMaxLoc(roi_filtered, nullptr, &peak_max, nullptr, &peak_max_loc);
+
+    if (peak_max > similarity_ratio_min)
+    {
+        cv::Point const peak_in_filtered = peak_max_loc + sub_roi.tl();
+        cv::Point2f const refined = refine_peak_loc(image_filtered, peak_in_filtered);
+        return std::make_pair(true, refined + cv::Point2f(ext_roi.tl()));
+    }
+
+    return std::make_pair(false, cv::Point2f(-1.0f, -1.0f));
 }
 
 

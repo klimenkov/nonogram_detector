@@ -99,6 +99,9 @@ void decode_region(
 {
     auto const cells = get_cell_warped_images_vector(image, cross_locs);
 
+    out.clear();
+    out_count.clear();
+    info.clear();
     out.resize(cells.size());
     out_count.resize(cells.size());
     info.resize(cells.size());

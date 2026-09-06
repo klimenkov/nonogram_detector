@@ -16,3 +16,6 @@ __pycache__/
 *:Zone.Identifier*
 .DS_Store
 Thumbs.db
+
+# Generated cell extraction directories
+cells_*/

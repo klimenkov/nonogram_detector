@@ -395,16 +395,21 @@ cv::Mat grid_smooth_fit_approach3(cv::Mat const& cross_locs, int order)
     int const n = bivar_nterms(order);
 
     // Gather valid crossings.
-    std::vector<std::array<double, 2>> uv;
+    struct Sample
+    {
+        double u, v;
+        double x, y;
+    };
+    std::vector<Sample> samples;
     for (int r = 0; r < R; ++r)
         for (int c = 0; c < C; ++c)
         {
             cv::Point2f const p = out.at<cv::Point2f>(r, c);
             if (p.x == kSentinel || p.y == kSentinel) continue;
-            uv.push_back({r / ru, c / cv});
+            samples.push_back({r / ru, c / cv, static_cast<double>(p.x), static_cast<double>(p.y)});
         }
 
-    if (uv.size() < static_cast<std::size_t>(n))
+    if (samples.size() < static_cast<std::size_t>(n))
     {
         return out;  // not enough data to fit this order
     }
@@ -412,9 +417,9 @@ cv::Mat grid_smooth_fit_approach3(cv::Mat const& cross_locs, int order)
     // Build the shared Gram matrix and evaluate/back-substitute per coordinate.
     std::vector<double> A(n * n, 0.0);
     std::vector<double> colbuf(n);
-    for (std::size_t t = 0; t < uv.size(); ++t)
+    for (std::size_t t = 0; t < samples.size(); ++t)
     {
-        double const u = uv[t][0], v = uv[t][1];
+        double const u = samples[t].u, v = samples[t].v;
         bivar_basis(u, v, order, colbuf);
         for (int a = 0; a < n; ++a)
         {
@@ -427,12 +432,10 @@ cv::Mat grid_smooth_fit_approach3(cv::Mat const& cross_locs, int order)
     for (int coord = 0; coord < 2; ++coord)
     {
         std::vector<double> rhs(n, 0.0);
-        for (std::size_t t = 0; t < uv.size(); ++t)
+        for (std::size_t t = 0; t < samples.size(); ++t)
         {
-            double val;
-            if (coord == 0) val = out.at<cv::Point2f>(t / C, t % C).x;
-            else            val = out.at<cv::Point2f>(t / C, t % C).y;
-            double const u = uv[t][0], v = uv[t][1];
+            double const val = (coord == 0) ? samples[t].x : samples[t].y;
+            double const u = samples[t].u, v = samples[t].v;
             bivar_basis(u, v, order, colbuf);
             for (int a = 0; a < n; ++a) rhs[a] += colbuf[a] * val;
         }

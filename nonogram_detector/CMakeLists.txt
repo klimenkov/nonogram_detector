@@ -23,9 +23,7 @@ target_include_directories(nonogram_detector PUBLIC include)
 set_target_properties(nonogram_detector PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
 
 set(OPENCV_COMPONENTS core imgproc imgcodecs dnn)
-find_package(OpenCV REQUIRED COMPONENTS ${OPENCV_COMPONENTS})
+find_package(OpenCV REQUIRED COMPONENTS ${OPENCV_COMPONENTS} OPTIONAL_COMPONENTS geometry)
 
-target_include_directories(nonogram_detector PUBLIC ${OpenCV_INCLUDE_DIRS})
-foreach(module ${OPENCV_COMPONENTS})
-	target_link_libraries(nonogram_detector PUBLIC opencv_${module})
-endforeach()
+target_include_directories(nonogram_detector SYSTEM PUBLIC ${OpenCV_INCLUDE_DIRS})
+target_link_libraries(nonogram_detector PUBLIC ${OpenCV_LIBS})
