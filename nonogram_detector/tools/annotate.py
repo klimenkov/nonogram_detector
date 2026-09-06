@@ -98,7 +98,15 @@ def saved_old_or_pred(c, old):
 
 
 def make_meta_card(meta, cells_dir):
-    has_image = os.path.isfile(os.path.join(cells_dir, "detection.jpg")) if cells_dir else False
+    has_image = False
+    img_name = "detection.jpg"
+    if cells_dir:
+        for name in ["detection.jpg", "detection.png", "grid.png", "grid.jpg"]:
+            if os.path.isfile(os.path.join(cells_dir, name)):
+                has_image = True
+                img_name = name
+                break
+
     if not meta and not has_image:
         return ""
 
@@ -106,8 +114,8 @@ def make_meta_card(meta, cells_dir):
     if has_image:
         img_html = (
             '<div class="meta-preview">'
-            '<a href="/detection.jpg" target="_blank" title="Click to view full image in new tab">'
-            '<img src="/detection.jpg" class="meta-img" alt="Detected Crossings Overlay">'
+            '<a href="/%s" target="_blank" title="Click to view full image in new tab">'
+            '<img src="/%s" class="meta-img" alt="Detected Crossings Overlay">'
             '</a>'
             '<div class="meta-caption">'
             'Overlay with detected grid crossings (click to open full-size).<br>'
@@ -115,7 +123,7 @@ def make_meta_card(meta, cells_dir):
             '<span style="color:#2e7d32;font-weight:bold">■</span> Top clues &bull; '
             '<span style="color:#0288d1;font-weight:bold">■</span> Left clues'
             '</div>'
-            '</div>'
+            '</div>' % (img_name, img_name)
         )
 
     rows = []
@@ -163,7 +171,7 @@ def make_meta_card(meta, cells_dir):
         table_html = '<div class="meta-info"><table class="meta-table">%s</table></div>' % table_rows
 
     return (
-        '<details class="meta-details">'
+        '<details class="meta-details" open>'
         '<summary class="meta-summary"><b>Detected Grid & Parameters</b> (click to expand/collapse)</summary>'
         '<div class="meta-content">%s%s</div>'
         '</details>' % (img_html, table_html)
@@ -512,8 +520,12 @@ def load_labels(cells_dir):
 
 
 def load_index(cells_dir):
-    idx = json.load(open(os.path.join(cells_dir, "index.json")))
-    return idx["photo"], idx["cells"], idx.get("meta", {})
+    idx_path = os.path.join(cells_dir, "index.json")
+    if not os.path.isfile(idx_path):
+        return os.path.basename(cells_dir), [], {}
+    with open(idx_path, "r", encoding="utf-8") as f:
+        idx = json.load(f)
+    return idx.get("photo", os.path.basename(cells_dir)), idx.get("cells", []), idx.get("meta", {})
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -541,12 +553,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
-        if self.path == "/detection.jpg":
-            jpg = os.path.join(CELLS_DIR, "detection.jpg")
-            if os.path.isfile(jpg):
-                data = open(jpg, "rb").read()
+        if self.path in ("/detection.jpg", "/detection.png", "/grid.png", "/grid.jpg"):
+            filename = self.path.lstrip("/")
+            img_path = os.path.join(CELLS_DIR, filename)
+            if os.path.isfile(img_path):
+                ctype = "image/png" if filename.endswith(".png") else "image/jpeg"
+                data = open(img_path, "rb").read()
                 self.send_response(200)
-                self.send_header("Content-Type", "image/jpeg")
+                self.send_header("Content-Type", ctype)
                 self.send_header("Content-Length", str(len(data)))
                 self.end_headers()
                 self.wfile.write(data)

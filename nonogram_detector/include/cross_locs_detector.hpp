@@ -78,7 +78,12 @@ private:
         cv::Size const roi_size,
         cv::Mat const& mask_cross,
         int const mask_cross_perimeter,
-        double const similarity_ratio_min);
+        double const similarity_ratio_min,
+        int const cell_side_length = 0,
+        int const min_x = -10000,
+        int const max_x = 10000,
+        int const min_y = -10000,
+        int const max_y = 10000);
 
 
     static cv::Size get_cross_loc_search_roi(int cell_side_length);

@@ -329,7 +329,12 @@ std::map<cv::Point, cv::Point2f, PointCompare> CrossLocsDetector::get_cross_locs
     cv::Size const roi_size,
     cv::Mat const& mask_cross,
     int const mask_cross_perimeter,
-    double const similarity_ratio_min)
+    double const similarity_ratio_min,
+    int const cell_side_length,
+    int const min_x,
+    int const max_x,
+    int const min_y,
+    int const max_y)
 {
     std::queue<cv::Point> indices_queue;
     std::set<cv::Point, PointCompare> was_in_indices_queue_set;
@@ -368,11 +373,39 @@ std::map<cv::Point, cv::Point2f, PointCompare> CrossLocsDetector::get_cross_locs
 
         if (cross_loc_found)
         {
+            // Reject candidate if it snapped onto an adjacent already-known crossing (prevents degenerate loops)
+            bool too_close = false;
+            if (cell_side_length > 0)
+            {
+                for (size_t d = 0; d < indices_deltas.size(); ++d)
+                {
+                    auto it_adj = cross_locs_map.find(indices - indices_deltas[d]);
+                    if (it_adj != cross_locs_map.end())
+                    {
+                        if (cv::norm(cross_loc - it_adj->second) < 0.6f * cell_side_length)
+                        {
+                            too_close = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (too_close)
+            {
+                continue;
+            }
+
             cross_locs_map[indices] = cross_loc;
 
             for (int i = 0; i < indices_deltas.size(); ++i)
             {
                 auto const indices_neighbor = indices + indices_deltas[i];
+                if (indices_neighbor.x < min_x || indices_neighbor.x > max_x ||
+                    indices_neighbor.y < min_y || indices_neighbor.y > max_y)
+                {
+                    continue;
+                }
+
                 bool const was_in_indices_queue =
                     was_in_indices_queue_set.find(indices_neighbor) != was_in_indices_queue_set.end();
 
@@ -386,7 +419,19 @@ std::map<cv::Point, cv::Point2f, PointCompare> CrossLocsDetector::get_cross_locs
                     auto it_prev = cross_locs_map.find(indices_prev);
                     if (it_prev != cross_locs_map.end())
                     {
-                        step = cross_loc - it_prev->second;
+                        cv::Point2f const candidate_step = cross_loc - it_prev->second;
+                        float const d = cv::norm(candidate_step);
+                        if (cell_side_length > 0)
+                        {
+                            if (d >= 0.6f * cell_side_length && d <= 1.6f * cell_side_length)
+                            {
+                                step = candidate_step;
+                            }
+                        }
+                        else
+                        {
+                            step = candidate_step;
+                        }
                     }
                     auto const cross_loc_neighbor_init = cross_loc + step;
                     cross_locs_init_map[indices_neighbor] = cross_loc_neighbor_init;
@@ -639,7 +684,8 @@ cv::Mat CrossLocsDetector::get_cross_locs_main_mat(
         get_cross_loc_search_roi(cell_side_length),
         mask_cross,
         mask_cross_perimeter,
-        similarity_ratio_min);
+        similarity_ratio_min,
+        cell_side_length);
 
     // Add extra lines on perimeter
     return convert_pad_augment(
@@ -688,6 +734,8 @@ cv::Mat CrossLocsDetector::get_cross_locs_top_mat(
     std::tie(mask_cross, mask_cross_perimeter) =
         get_mask_cross(cell_side_length_odd);
 
+    int const max_top_clue_rows = std::min(30, std::max(12, cross_locs_main_mat.rows / 2));
+
     auto cross_locs_top_map = get_cross_locs_map(
         image_thresholded,
         indices_neighbors_init,
@@ -697,7 +745,10 @@ cv::Mat CrossLocsDetector::get_cross_locs_top_mat(
         get_cross_loc_search_roi_top(cell_side_length),
         mask_cross,
         mask_cross_perimeter,
-        similarity_ratio_min);
+        similarity_ratio_min,
+        cell_side_length,
+        0, cross_locs_main_mat.cols - 1,
+        -max_top_clue_rows, 0);
 
     if (cross_locs_top_map.empty())
     {
@@ -733,7 +784,10 @@ cv::Mat CrossLocsDetector::get_cross_locs_top_mat(
                 get_cross_loc_search_roi_top(cell_side_length),
                 mask_cross,
                 mask_cross_perimeter,
-                similarity_ratio_min_loose);
+                similarity_ratio_min_loose,
+                cell_side_length,
+                bbox.br().x + 1, cross_locs_main_mat.cols - 1,
+                -max_top_clue_rows, 0);
 
             int const min_x = bbox.br().x + 1;
             for (auto const& item : loose_map)
@@ -747,7 +801,23 @@ cv::Mat CrossLocsDetector::get_cross_locs_top_mat(
         bbox = get_bounding_rectangle(cross_locs_top_map);
     }
 
-    int const num_clue_rows = std::abs(bbox.tl().y);
+    // Filter out rows with too few points to avoid false-positive spikes from headers/banners
+    int const min_points_for_row = std::min(3, std::max(1, (cross_locs_main_mat.cols - 1) / 4));
+    int effective_min_y = 0;
+    for (int y = -1; y >= bbox.tl().y; --y)
+    {
+        int cnt = 0;
+        for (auto const& item : cross_locs_top_map)
+        {
+            if (item.first.y == y) cnt++;
+        }
+        if (cnt >= min_points_for_row)
+        {
+            effective_min_y = y;
+        }
+    }
+
+    int const num_clue_rows = std::abs(effective_min_y);
     if (num_clue_rows <= 0)
     {
         return cv::Mat();
@@ -757,7 +827,7 @@ cv::Mat CrossLocsDetector::get_cross_locs_top_mat(
 
     std::vector<std::vector<float>> row_h(num_top_rows, std::vector<float>(num_cols, 0.0f));
 
-    for (int y = -1; y >= bbox.tl().y; --y)
+    for (int y = -1; y >= -num_clue_rows; --y)
     {
         int const r = num_top_rows - 1 + y;
         std::vector<double> xs, hs;
@@ -928,6 +998,8 @@ cv::Mat CrossLocsDetector::get_cross_locs_left_mat(
     std::tie(mask_cross, mask_cross_perimeter) =
         ng::get_mask_cross(cell_side_length_odd);
 
+    int const max_left_clue_cols = std::min(30, std::max(12, cross_locs_main_mat.cols / 2));
+
     auto cross_locs_left_map = get_cross_locs_map(
         image_thresholded,
         indices_neighbors_init,
@@ -937,7 +1009,10 @@ cv::Mat CrossLocsDetector::get_cross_locs_left_mat(
         get_cross_loc_search_roi_left(cell_side_length),
         mask_cross,
         mask_cross_perimeter,
-        similarity_ratio_min);
+        similarity_ratio_min,
+        cell_side_length,
+        -max_left_clue_cols, 0,
+        0, cross_locs_main_mat.rows - 1);
 
     if (cross_locs_left_map.empty())
     {
@@ -972,7 +1047,10 @@ cv::Mat CrossLocsDetector::get_cross_locs_left_mat(
                 get_cross_loc_search_roi_left(cell_side_length),
                 mask_cross,
                 mask_cross_perimeter,
-                similarity_ratio_min_loose);
+                similarity_ratio_min_loose,
+                cell_side_length,
+                -max_left_clue_cols, 0,
+                bbox.br().y + 1, cross_locs_main_mat.rows - 1);
 
             int const min_y = bbox.br().y + 1;
             for (auto const& item : loose_map)
@@ -986,7 +1064,22 @@ cv::Mat CrossLocsDetector::get_cross_locs_left_mat(
         bbox = get_bounding_rectangle(cross_locs_left_map);
     }
 
-    int const num_clue_cols = std::abs(bbox.tl().x);
+    int const min_points_for_col = std::min(2, std::max(1, (cross_locs_main_mat.rows - 1) / 5));
+    int effective_min_x = 0;
+    for (int x = -1; x >= bbox.tl().x; --x)
+    {
+        int cnt = 0;
+        for (auto const& item : cross_locs_left_map)
+        {
+            if (item.first.x == x) cnt++;
+        }
+        if (cnt >= min_points_for_col)
+        {
+            effective_min_x = x;
+        }
+    }
+
+    int const num_clue_cols = std::abs(effective_min_x);
     if (num_clue_cols <= 0)
     {
         return cv::Mat();
@@ -1002,7 +1095,7 @@ cv::Mat CrossLocsDetector::get_cross_locs_left_mat(
         cv::Point2f const p0 = cross_locs_main_mat.at<cv::Point2f>(r, 0);
         cv::Point2f sum_v(0.0f, 0.0f);
         int count = 0;
-        for (int x = -1; x >= bbox.tl().x; --x)
+        for (int x = -1; x >= -num_clue_cols; --x)
         {
             auto it = cross_locs_left_map.find(cv::Point(x, r));
             if (it != cross_locs_left_map.end())
@@ -1011,27 +1104,37 @@ cv::Mat CrossLocsDetector::get_cross_locs_left_mat(
                 count++;
             }
         }
-        if (count > 0 && cv::norm(sum_v) > 1e-3f)
+        int const k = std::min(5, cross_locs_main_mat.cols - 1);
+        cv::Point2f const pk = cross_locs_main_mat.at<cv::Point2f>(r, k);
+        cv::Point2f u_grid = p0 - pk;
+        if (cv::norm(u_grid) > 1e-3f)
         {
-            row_u[r] = sum_v / cv::norm(sum_v);
+            u_grid /= cv::norm(u_grid);
         }
         else
         {
-            int const k = std::min(5, cross_locs_main_mat.cols - 1);
-            cv::Point2f const pk = cross_locs_main_mat.at<cv::Point2f>(r, k);
-            cv::Point2f u = p0 - pk;
-            if (cv::norm(u) > 1e-3f)
+            u_grid = cv::Point2f(-1.0f, 0.0f);
+        }
+
+        if (count >= 2 && cv::norm(sum_v) > 1e-3f)
+        {
+            cv::Point2f const u_cand = sum_v / cv::norm(sum_v);
+            if (u_cand.dot(u_grid) > 0.85f)
             {
-                row_u[r] = u / cv::norm(u);
+                row_u[r] = u_cand;
             }
             else
             {
-                row_u[r] = cv::Point2f(-1.0f, 0.0f);
+                row_u[r] = u_grid;
             }
+        }
+        else
+        {
+            row_u[r] = u_grid;
         }
     }
 
-    for (int x = -1; x >= bbox.tl().x; --x)
+    for (int x = -1; x >= -num_clue_cols; --x)
     {
         int const c = num_left_cols - 1 + x;
         std::vector<double> ys, ws;
