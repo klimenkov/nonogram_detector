@@ -57,6 +57,13 @@ void refine_cross_locs_ink(
     int const window_radius);
 
 
+
+
+// Applies local binomial 1-D smoothing along rows and columns of a grid matrix
+// to eliminate high-frequency vertex jitter while preserving natural curvature.
+void smooth_grid_locally(cv::Mat& cross_locs, int const passes = 2);
+
+
 // The boolean flag in the return value shows if the search was successful.
 // The returned location is subpixel (cv::Point2f).
 std::pair<bool, cv::Point2f> find_kernel_loc(

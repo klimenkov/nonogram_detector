@@ -234,6 +234,60 @@ void refine_cross_locs_ink(
 }
 
 
+
+
+void smooth_grid_locally(cv::Mat& cross_locs, int const passes)
+{
+    if (cross_locs.empty() || cross_locs.type() != CV_32FC2)
+    {
+        return;
+    }
+
+    int const rows = cross_locs.rows;
+    int const cols = cross_locs.cols;
+    if (rows < 3 || cols < 3)
+    {
+        return;
+    }
+
+    for (int p = 0; p < passes; ++p)
+    {
+        cv::Mat temp = cross_locs.clone();
+        for (int r = 1; r < rows - 1; ++r)
+        {
+            for (int c = 0; c < cols; ++c)
+            {
+                cv::Point2f const p_prev = cross_locs.at<cv::Point2f>(r - 1, c);
+                cv::Point2f const p_cur  = cross_locs.at<cv::Point2f>(r, c);
+                cv::Point2f const p_next = cross_locs.at<cv::Point2f>(r + 1, c);
+                if (p_prev != cv::Point2f(-1.0f, -1.0f) &&
+                    p_cur  != cv::Point2f(-1.0f, -1.0f) &&
+                    p_next != cv::Point2f(-1.0f, -1.0f))
+                {
+                    temp.at<cv::Point2f>(r, c) = 0.25f * p_prev + 0.50f * p_cur + 0.25f * p_next;
+                }
+            }
+        }
+        cross_locs = temp.clone();
+        for (int r = 0; r < rows; ++r)
+        {
+            for (int c = 1; c < cols - 1; ++c)
+            {
+                cv::Point2f const p_prev = temp.at<cv::Point2f>(r, c - 1);
+                cv::Point2f const p_cur  = temp.at<cv::Point2f>(r, c);
+                cv::Point2f const p_next = temp.at<cv::Point2f>(r, c + 1);
+                if (p_prev != cv::Point2f(-1.0f, -1.0f) &&
+                    p_cur  != cv::Point2f(-1.0f, -1.0f) &&
+                    p_next != cv::Point2f(-1.0f, -1.0f))
+                {
+                    cross_locs.at<cv::Point2f>(r, c) = 0.25f * p_prev + 0.50f * p_cur + 0.25f * p_next;
+                }
+            }
+        }
+    }
+}
+
+
 std::pair<bool, cv::Point2f> find_kernel_loc(
     cv::Mat const& image_thresholded,
     cv::Mat const& kernel,

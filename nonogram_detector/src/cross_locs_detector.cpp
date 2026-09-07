@@ -222,7 +222,7 @@ Detection CrossLocsDetector::detect_impl(
     int const ink_window_radius = std::max(4, cell_side_length / 4);
     refine_cross_locs_ink(image_gray, cross_locs_main_mat, ink_window_radius);
 
-    cross_locs_main_mat = grid_smooth_fit_approach1(cross_locs_main_mat, 3, 2);
+    smooth_grid_locally(cross_locs_main_mat, 2);
 
     detection.found = true;
     detection.main = scale_cross_locs_mat(cross_locs_main_mat, scale);
@@ -817,141 +817,162 @@ cv::Mat CrossLocsDetector::get_cross_locs_top_mat(
         }
     }
 
-    int const num_clue_rows = std::abs(effective_min_y);
-    if (num_clue_rows <= 0)
-    {
-        return cv::Mat();
-    }
-    int const num_top_rows = num_clue_rows + 2;
     int const num_cols = cross_locs_main_mat.cols;
-
-    std::vector<std::vector<float>> row_h(num_top_rows, std::vector<float>(num_cols, 0.0f));
-
-    for (int y = -1; y >= -num_clue_rows; --y)
-    {
-        int const r = num_top_rows - 1 + y;
-        std::vector<double> xs, hs;
-        for (int c = 0; c < num_cols - 1; ++c)
-        {
-            auto it = cross_locs_top_map.find(cv::Point(c, y));
-            if (it != cross_locs_top_map.end())
-            {
-                int const k = std::min(5, cross_locs_main_mat.rows - 1);
-                cv::Point2f const p0 = cross_locs_main_mat.at<cv::Point2f>(0, c);
-                cv::Point2f const pk = cross_locs_main_mat.at<cv::Point2f>(k, c);
-                cv::Point2f u = p0 - pk;
-                float const len = cv::norm(u);
-                if (len > 1e-3f)
-                {
-                    u /= len;
-                    float const h = (it->second - p0).dot(u);
-                    xs.push_back(c);
-                    hs.push_back(h);
-                }
-            }
-        }
-
-        if (xs.size() >= 2)
-        {
-            double sum_x = 0, sum_y = 0;
-            for (size_t i = 0; i < xs.size(); ++i)
-            {
-                sum_x += xs[i];
-                sum_y += hs[i];
-            }
-            double mean_x = sum_x / xs.size();
-            double mean_y = sum_y / xs.size();
-            double sxx = 0, sxy = 0;
-            for (size_t i = 0; i < xs.size(); ++i)
-            {
-                double const dx = xs[i] - mean_x;
-                double const dy = hs[i] - mean_y;
-                sxx += dx * dx;
-                sxy += dx * dy;
-            }
-            double b = (sxx > 1e-6) ? (sxy / sxx) : 0.0;
-            double a = mean_y - b * mean_x;
-
-            std::vector<double> xs_clean, hs_clean;
-            double const max_residual = 0.4 * cell_side_length;
-            for (size_t i = 0; i < xs.size(); ++i)
-            {
-                if (std::abs(hs[i] - (a + b * xs[i])) < max_residual)
-                {
-                    xs_clean.push_back(xs[i]);
-                    hs_clean.push_back(hs[i]);
-                }
-            }
-            if (xs_clean.size() >= 2)
-            {
-                sum_x = 0; sum_y = 0;
-                for (size_t i = 0; i < xs_clean.size(); ++i)
-                {
-                    sum_x += xs_clean[i];
-                    sum_y += hs_clean[i];
-                }
-                mean_x = sum_x / xs_clean.size();
-                mean_y = sum_y / xs_clean.size();
-                sxx = 0; sxy = 0;
-                for (size_t i = 0; i < xs_clean.size(); ++i)
-                {
-                    double const dx = xs_clean[i] - mean_x;
-                    double const dy = hs_clean[i] - mean_y;
-                    sxx += dx * dx;
-                    sxy += dx * dy;
-                }
-                b = (sxx > 1e-6) ? (sxy / sxx) : 0.0;
-                a = mean_y - b * mean_x;
-            }
-
-            for (int c = 0; c < num_cols; ++c)
-            {
-                row_h[r][c] = static_cast<float>(a + b * c);
-            }
-        }
-        else if (!xs.empty())
-        {
-            for (int c = 0; c < num_cols; ++c)
-            {
-                row_h[r][c] = static_cast<float>(hs[0]);
-            }
-        }
-        else
-        {
-            for (int c = 0; c < num_cols; ++c)
-            {
-                row_h[r][c] = row_h[r + 1][c] + static_cast<float>(cell_side_length);
-            }
-        }
-    }
+    int const num_rows = cross_locs_main_mat.rows;
+    int const k_col = std::min(10, num_rows - 1);
+    std::vector<cv::Point2f> col_u(num_cols);
+    std::vector<float> h_step(num_cols);
 
     for (int c = 0; c < num_cols; ++c)
     {
-        row_h[0][c] = 2.0f * row_h[1][c] - (num_clue_rows >= 2 ? row_h[2][c] : 0.0f);
-    }
-
-    cv::Mat cross_locs_top_mat(num_top_rows, num_cols, CV_32FC2);
-    for (int c = 0; c < num_cols; ++c)
-    {
-        int const k = std::min(5, cross_locs_main_mat.rows - 1);
         cv::Point2f const p0 = cross_locs_main_mat.at<cv::Point2f>(0, c);
-        cv::Point2f const pk = cross_locs_main_mat.at<cv::Point2f>(k, c);
+        cv::Point2f const pk = cross_locs_main_mat.at<cv::Point2f>(k_col, c);
         cv::Point2f u = p0 - pk;
         float const len = cv::norm(u);
         if (len > 1e-3f)
         {
-            u /= len;
+            col_u[c] = u / len;
+            h_step[c] = len / static_cast<float>(k_col);
         }
         else
         {
-            u = cv::Point2f(0.0f, -1.0f);
+            col_u[c] = cv::Point2f(0.0f, -1.0f);
+            h_step[c] = static_cast<float>(cell_side_length);
         }
+    }
 
-        for (int r = 0; r < num_top_rows - 1; ++r)
+    // Smooth col_u and h_step across columns to ensure uniform, smoothly varying cell geometry
+    for (int pass = 0; pass < 3; ++pass)
+    {
+        auto u_copy = col_u;
+        auto h_copy = h_step;
+        for (int c = 1; c < num_cols - 1; ++c)
         {
-            cross_locs_top_mat.at<cv::Point2f>(r, c) = p0 + row_h[r][c] * u;
+            col_u[c] = 0.25f * u_copy[c - 1] + 0.5f * u_copy[c] + 0.25f * u_copy[c + 1];
+            float const len = cv::norm(col_u[c]);
+            if (len > 1e-3f) col_u[c] /= len;
+            h_step[c] = 0.25f * h_copy[c - 1] + 0.5f * h_copy[c] + 0.25f * h_copy[c + 1];
         }
+    }
+
+    std::vector<float> ratios;
+    for (auto const& item : cross_locs_top_map)
+    {
+        int const c = item.first.x;
+        int const y = item.first.y;
+        if (c >= 0 && c < num_cols && y < 0)
+        {
+            cv::Point2f const p0 = cross_locs_main_mat.at<cv::Point2f>(0, c);
+            float const d = (item.second - p0).dot(col_u[c]);
+            float const expected = std::abs(y) * h_step[c];
+            if (expected > 1e-3f && d > 0.0f)
+            {
+                float const s = d / expected;
+                if (s >= 0.85f && s <= 1.15f)
+                {
+                    ratios.push_back(s);
+                }
+            }
+        }
+    }
+    float clue_pitch_ratio = 1.0f;
+    if (ratios.size() >= 3)
+    {
+        std::sort(ratios.begin(), ratios.end());
+        clue_pitch_ratio = ratios[ratios.size() / 2];
+    }
+    clue_pitch_ratio = std::clamp(clue_pitch_ratio, 0.85f, 1.15f);
+
+    // Outward contiguous ink scanning to determine the full height of the top clues staircase
+    std::vector<int> col_depths(num_cols - 1, 0);
+    for (int c = 0; c < num_cols - 1; ++c)
+    {
+        cv::Point2f const p0_c = cross_locs_main_mat.at<cv::Point2f>(0, c);
+        cv::Point2f const p0_next = cross_locs_main_mat.at<cv::Point2f>(0, c + 1);
+        cv::Point2f const u_c = col_u[c];
+        cv::Point2f const u_next = col_u[c + 1];
+        float const step_c = clue_pitch_ratio * h_step[c];
+        float const step_next = clue_pitch_ratio * h_step[c + 1];
+
+        int col_clues = 0;
+        for (int m = 1; m <= max_top_clue_rows; ++m)
+        {
+            cv::Point2f const left_pt = p0_c + (static_cast<float>(m) - 0.5f) * step_c * u_c;
+            cv::Point2f const right_pt = p0_next + (static_cast<float>(m) - 0.5f) * step_next * u_next;
+            cv::Point2f const center = 0.5f * (left_pt + right_pt);
+
+            float const cell_h = 0.5f * (step_c + step_next);
+            float const cell_w = cv::norm(p0_next - p0_c);
+            int const rx = std::max(2, static_cast<int>(cell_w * 0.42f));
+            int const ry = std::max(2, static_cast<int>(cell_h * 0.42f));
+            int ink = 0;
+            for (int dy = -ry; dy <= ry; ++dy)
+            {
+                for (int dx = -rx; dx <= rx; ++dx)
+                {
+                    int const x = cvRound(center.x + dx);
+                    int const y = cvRound(center.y + dy);
+                    if (x >= 0 && x < image_thresholded.cols && y >= 0 && y < image_thresholded.rows)
+                    {
+                        if (image_thresholded.at<uchar>(y, x) > 0)
+                        {
+                            ink++;
+                        }
+                    }
+                }
+            }
+            if (ink >= 5)
+            {
+                col_clues = m;
+            }
+            else
+            {
+                break;
+            }
+        }
+        col_depths[c] = col_clues;
+    }
+
+    int max_ink_rows = 0;
+    for (int d = 1; d <= max_top_clue_rows; ++d)
+    {
+        int cnt = 0;
+        for (int val : col_depths)
+        {
+            if (val >= d) cnt++;
+        }
+        if (cnt >= 2)
+        {
+            max_ink_rows = d;
+        }
+    }
+
+    int num_clue_rows = std::max(std::abs(effective_min_y), max_ink_rows);
+    if (num_clue_rows <= 0)
+    {
+        return cv::Mat();
+    }
+    // Add 1 extra row for clean margin above highest digit
+    num_clue_rows = std::clamp(num_clue_rows + 1, 1, max_top_clue_rows);
+    int const num_top_rows = num_clue_rows + 2;
+
+    cv::Mat cross_locs_top_mat(num_top_rows, num_cols, CV_32FC2);
+    for (int c = 0; c < num_cols; ++c)
+    {
+        cv::Point2f const p0 = cross_locs_main_mat.at<cv::Point2f>(0, c);
         cross_locs_top_mat.at<cv::Point2f>(num_top_rows - 1, c) = p0;
+        for (int m = 1; m < num_top_rows; ++m)
+        {
+            int const r = (num_top_rows - 1) - m;
+            float const d = static_cast<float>(m) * clue_pitch_ratio * h_step[c];
+            cross_locs_top_mat.at<cv::Point2f>(r, c) = p0 + d * col_u[c];
+        }
+    }
+
+    smooth_grid_locally(cross_locs_top_mat, 2);
+    for (int c = 0; c < num_cols; ++c)
+    {
+        cross_locs_top_mat.at<cv::Point2f>(num_top_rows - 1, c) = cross_locs_main_mat.at<cv::Point2f>(0, c);
     }
 
     return cross_locs_top_mat;
@@ -1079,168 +1100,147 @@ cv::Mat CrossLocsDetector::get_cross_locs_left_mat(
         }
     }
 
-    int const num_clue_cols = std::abs(effective_min_x);
+    int const num_rows = cross_locs_main_mat.rows;
+    int const num_cols = cross_locs_main_mat.cols;
+    int const k_row = std::min(15, num_cols - 1);
+    std::vector<cv::Point2f> row_u(num_rows);
+    std::vector<float> w_step(num_rows);
+
+    for (int r = 0; r < num_rows; ++r)
+    {
+        cv::Point2f const p0 = cross_locs_main_mat.at<cv::Point2f>(r, 0);
+        cv::Point2f const pk = cross_locs_main_mat.at<cv::Point2f>(r, k_row);
+        cv::Point2f u = p0 - pk;
+        float const len = cv::norm(u);
+        if (len > 1e-3f)
+        {
+            row_u[r] = u / len;
+            w_step[r] = len / static_cast<float>(k_row);
+        }
+        else
+        {
+            row_u[r] = cv::Point2f(-1.0f, 0.0f);
+            w_step[r] = static_cast<float>(cell_side_length);
+        }
+    }
+
+    // Smooth row_u and w_step across rows to ensure uniform, smoothly varying cell geometry
+    for (int pass = 0; pass < 3; ++pass)
+    {
+        auto u_copy = row_u;
+        auto w_copy = w_step;
+        for (int r = 1; r < num_rows - 1; ++r)
+        {
+            row_u[r] = 0.25f * u_copy[r - 1] + 0.5f * u_copy[r] + 0.25f * u_copy[r + 1];
+            float const len = cv::norm(row_u[r]);
+            if (len > 1e-3f) row_u[r] /= len;
+            w_step[r] = 0.25f * w_copy[r - 1] + 0.5f * w_copy[r] + 0.25f * w_copy[r + 1];
+        }
+    }
+
+    std::vector<float> ratios;
+    for (auto const& item : cross_locs_left_map)
+    {
+        int const r = item.first.y;
+        int const x = item.first.x;
+        if (r >= 0 && r < num_rows && x < 0)
+        {
+            cv::Point2f const p0 = cross_locs_main_mat.at<cv::Point2f>(r, 0);
+            float const d = (item.second - p0).dot(row_u[r]);
+            float const expected = std::abs(x) * w_step[r];
+            if (expected > 1e-3f && d > 0.0f)
+            {
+                float const s = d / expected;
+                if (s >= 0.85f && s <= 1.15f)
+                {
+                    ratios.push_back(s);
+                }
+            }
+        }
+    }
+    float clue_pitch_ratio = 1.0f;
+    if (ratios.size() >= 3)
+    {
+        std::sort(ratios.begin(), ratios.end());
+        clue_pitch_ratio = ratios[ratios.size() / 2];
+    }
+    clue_pitch_ratio = std::clamp(clue_pitch_ratio, 0.85f, 1.15f);
+
+    // Outward contiguous ink scanning to determine the full width of the left clues staircase
+    int max_ink_cols = 0;
+    for (int r = 0; r < num_rows - 1; ++r)
+    {
+        cv::Point2f const p0_r = cross_locs_main_mat.at<cv::Point2f>(r, 0);
+        cv::Point2f const p0_next = cross_locs_main_mat.at<cv::Point2f>(r + 1, 0);
+        cv::Point2f const u_r = row_u[r];
+        cv::Point2f const u_next = row_u[r + 1];
+        float const step_r = clue_pitch_ratio * w_step[r];
+        float const step_next = clue_pitch_ratio * w_step[r + 1];
+
+        int row_clues = 0;
+        for (int m = 1; m <= max_left_clue_cols; ++m)
+        {
+            cv::Point2f const top_pt = p0_r + (static_cast<float>(m) - 0.5f) * step_r * u_r;
+            cv::Point2f const bot_pt = p0_next + (static_cast<float>(m) - 0.5f) * step_next * u_next;
+            cv::Point2f const center = 0.5f * (top_pt + bot_pt);
+
+            float const cell_w = 0.5f * (step_r + step_next);
+            float const cell_h = cv::norm(p0_next - p0_r);
+            int const rx = std::max(2, static_cast<int>(cell_w * 0.42f));
+            int const ry = std::max(2, static_cast<int>(cell_h * 0.42f));
+            int ink = 0;
+            for (int dy = -ry; dy <= ry; ++dy)
+            {
+                for (int dx = -rx; dx <= rx; ++dx)
+                {
+                    int const x = cvRound(center.x + dx);
+                    int const y = cvRound(center.y + dy);
+                    if (x >= 0 && x < image_thresholded.cols && y >= 0 && y < image_thresholded.rows)
+                    {
+                        if (image_thresholded.at<uchar>(y, x) > 0)
+                        {
+                            ink++;
+                        }
+                    }
+                }
+            }
+            if (ink >= 3)
+            {
+                row_clues = m;
+            }
+            else
+            {
+                break;
+            }
+        }
+        max_ink_cols = std::max(max_ink_cols, row_clues);
+    }
+
+    int num_clue_cols = std::max(std::abs(effective_min_x), max_ink_cols);
     if (num_clue_cols <= 0)
     {
         return cv::Mat();
     }
+    num_clue_cols = std::clamp(num_clue_cols, 1, max_left_clue_cols);
     int const num_left_cols = num_clue_cols + 2;
-    int const num_rows = cross_locs_main_mat.rows;
-
-    std::vector<std::vector<float>> col_w(num_left_cols, std::vector<float>(num_rows, 0.0f));
-
-    std::vector<cv::Point2f> row_u(num_rows);
-    for (int r = 0; r < num_rows; ++r)
-    {
-        cv::Point2f const p0 = cross_locs_main_mat.at<cv::Point2f>(r, 0);
-        cv::Point2f sum_v(0.0f, 0.0f);
-        int count = 0;
-        for (int x = -1; x >= -num_clue_cols; --x)
-        {
-            auto it = cross_locs_left_map.find(cv::Point(x, r));
-            if (it != cross_locs_left_map.end())
-            {
-                sum_v += (it->second - p0);
-                count++;
-            }
-        }
-        int const k = std::min(5, cross_locs_main_mat.cols - 1);
-        cv::Point2f const pk = cross_locs_main_mat.at<cv::Point2f>(r, k);
-        cv::Point2f u_grid = p0 - pk;
-        if (cv::norm(u_grid) > 1e-3f)
-        {
-            u_grid /= cv::norm(u_grid);
-        }
-        else
-        {
-            u_grid = cv::Point2f(-1.0f, 0.0f);
-        }
-
-        if (count >= 2 && cv::norm(sum_v) > 1e-3f)
-        {
-            cv::Point2f const u_cand = sum_v / cv::norm(sum_v);
-            if (u_cand.dot(u_grid) > 0.85f)
-            {
-                row_u[r] = u_cand;
-            }
-            else
-            {
-                row_u[r] = u_grid;
-            }
-        }
-        else
-        {
-            row_u[r] = u_grid;
-        }
-    }
-
-    for (int x = -1; x >= -num_clue_cols; --x)
-    {
-        int const c = num_left_cols - 1 + x;
-        std::vector<double> ys, ws;
-        for (int r = 0; r < num_rows; ++r)
-        {
-            auto it = cross_locs_left_map.find(cv::Point(x, r));
-            if (it != cross_locs_left_map.end())
-            {
-                cv::Point2f const p0 = cross_locs_main_mat.at<cv::Point2f>(r, 0);
-                cv::Point2f const u = row_u[r];
-                float const w = (it->second - p0).dot(u);
-                ys.push_back(r);
-                ws.push_back(w);
-            }
-        }
-
-        if (ys.size() >= 2)
-        {
-            double sum_x = 0, sum_y = 0;
-            for (size_t i = 0; i < ys.size(); ++i)
-            {
-                sum_x += ys[i];
-                sum_y += ws[i];
-            }
-            double mean_x = sum_x / ys.size();
-            double mean_y = sum_y / ys.size();
-            double sxx = 0, sxy = 0;
-            for (size_t i = 0; i < ys.size(); ++i)
-            {
-                double const dx = ys[i] - mean_x;
-                double const dy = ws[i] - mean_y;
-                sxx += dx * dx;
-                sxy += dx * dy;
-            }
-            double b = (sxx > 1e-6) ? (sxy / sxx) : 0.0;
-            double a = mean_y - b * mean_x;
-
-            std::vector<double> ys_clean, ws_clean;
-            double const max_residual = 0.4 * cell_side_length;
-            for (size_t i = 0; i < ys.size(); ++i)
-            {
-                if (std::abs(ws[i] - (a + b * ys[i])) < max_residual)
-                {
-                    ys_clean.push_back(ys[i]);
-                    ws_clean.push_back(ws[i]);
-                }
-            }
-            if (ys_clean.size() >= 2)
-            {
-                sum_x = 0; sum_y = 0;
-                for (size_t i = 0; i < ys_clean.size(); ++i)
-                {
-                    sum_x += ys_clean[i];
-                    sum_y += ws_clean[i];
-                }
-                mean_x = sum_x / ys_clean.size();
-                mean_y = sum_y / ys_clean.size();
-                sxx = 0; sxy = 0;
-                for (size_t i = 0; i < ys_clean.size(); ++i)
-                {
-                    double const dx = ys_clean[i] - mean_x;
-                    double const dy = ws_clean[i] - mean_y;
-                    sxx += dx * dx;
-                    sxy += dx * dy;
-                }
-                b = (sxx > 1e-6) ? (sxy / sxx) : 0.0;
-                a = mean_y - b * mean_x;
-            }
-
-            for (int r = 0; r < num_rows; ++r)
-            {
-                col_w[c][r] = static_cast<float>(a + b * r);
-            }
-        }
-        else if (!ys.empty())
-        {
-            for (int r = 0; r < num_rows; ++r)
-            {
-                col_w[c][r] = static_cast<float>(ws[0]);
-            }
-        }
-        else
-        {
-            for (int r = 0; r < num_rows; ++r)
-            {
-                col_w[c][r] = col_w[c + 1][r] + static_cast<float>(cell_side_length);
-            }
-        }
-    }
-
-    for (int r = 0; r < num_rows; ++r)
-    {
-        col_w[0][r] = 2.0f * col_w[1][r] - (num_clue_cols >= 2 ? col_w[2][r] : 0.0f);
-    }
 
     cv::Mat cross_locs_left_mat(num_rows, num_left_cols, CV_32FC2);
     for (int r = 0; r < num_rows; ++r)
     {
         cv::Point2f const p0 = cross_locs_main_mat.at<cv::Point2f>(r, 0);
-        cv::Point2f const u = row_u[r];
-
-        for (int c = 0; c < num_left_cols - 1; ++c)
-        {
-            cross_locs_left_mat.at<cv::Point2f>(r, c) = p0 + col_w[c][r] * u;
-        }
         cross_locs_left_mat.at<cv::Point2f>(r, num_left_cols - 1) = p0;
+        for (int m = 1; m < num_left_cols; ++m)
+        {
+            int const c = (num_left_cols - 1) - m;
+            float const d = static_cast<float>(m) * clue_pitch_ratio * w_step[r];
+            cross_locs_left_mat.at<cv::Point2f>(r, c) = p0 + d * row_u[r];
+        }
+    }
+
+    smooth_grid_locally(cross_locs_left_mat, 2);
+    for (int r = 0; r < num_rows; ++r)
+    {
+        cross_locs_left_mat.at<cv::Point2f>(r, num_left_cols - 1) = cross_locs_main_mat.at<cv::Point2f>(r, 0);
     }
 
     return cross_locs_left_mat;
