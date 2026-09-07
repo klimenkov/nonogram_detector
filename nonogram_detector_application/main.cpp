@@ -402,15 +402,72 @@ void solve_and_export(
         }
         return line;
     };
+    // In a Japanese nonogram, clue numbers are anchored against the main grid
+    // boundary (bottom of top clues, right of left clues). An entire empty row
+    // (or column) marks the boundary separating this puzzle from neighboring
+    // puzzles or page headers.
+    std::size_t first_valid_top_row = 0;
+    if (!clues.top.empty())
+    {
+        for (int r = static_cast<int>(clues.top.size()) - 1; r >= 0; --r)
+        {
+            bool has_digit = false;
+            for (std::size_t c = 0; c < clues.top[r].size(); ++c)
+            {
+                if (clues.top[r][c] >= 1)
+                {
+                    has_digit = true;
+                    break;
+                }
+            }
+            if (!has_digit)
+            {
+                first_valid_top_row = static_cast<std::size_t>(r + 1);
+                break;
+            }
+        }
+    }
+
+    std::size_t first_valid_left_col = 0;
+    if (!clues.left.empty() && !clues.left[0].empty())
+    {
+        std::size_t const num_left_cols = clues.left[0].size();
+        for (int c = static_cast<int>(num_left_cols) - 1; c >= 0; --c)
+        {
+            bool has_digit = false;
+            for (std::size_t r = 0; r < clues.left.size(); ++r)
+            {
+                if (c < static_cast<int>(clues.left[r].size()) && clues.left[r][c] >= 1)
+                {
+                    has_digit = true;
+                    break;
+                }
+            }
+            if (!has_digit)
+            {
+                first_valid_left_col = static_cast<std::size_t>(c + 1);
+                break;
+            }
+        }
+    }
+
     ng::DecodedCells decoded;
     decoded.rows.assign(H, {});
     for (std::size_t r = 0; r < H; ++r)
-        decoded.rows[r] = clueline(clues.left[r], clues.left_count[r]);
+    {
+        std::vector<int> digits, counts;
+        for (std::size_t c = first_valid_left_col; c < clues.left[r].size(); ++c)
+        {
+            digits.push_back(clues.left[r][c]);
+            counts.push_back(c < clues.left_count[r].size() ? clues.left_count[r][c] : 0);
+        }
+        decoded.rows[r] = clueline(digits, counts);
+    }
     decoded.cols.assign(W, {});
     for (std::size_t c = 0; c < W; ++c)
     {
         std::vector<int> digits, counts;
-        for (std::size_t r = 0; r < clues.top.size() && c < clues.top[r].size(); ++r)
+        for (std::size_t r = first_valid_top_row; r < clues.top.size() && c < clues.top[r].size(); ++r)
         {
             digits.push_back(clues.top[r][c]);
             counts.push_back(clues.top_count[r][c]);

@@ -815,6 +815,10 @@ cv::Mat CrossLocsDetector::get_cross_locs_top_mat(
         {
             effective_min_y = y;
         }
+        else
+        {
+            break;
+        }
     }
 
     int const num_cols = cross_locs_main_mat.cols;
@@ -941,9 +945,13 @@ cv::Mat CrossLocsDetector::get_cross_locs_top_mat(
         {
             if (val >= d) cnt++;
         }
-        if (cnt >= 2)
+        if (cnt >= 1)
         {
             max_ink_rows = d;
+        }
+        else
+        {
+            break;
         }
     }
 
@@ -1097,6 +1105,10 @@ cv::Mat CrossLocsDetector::get_cross_locs_left_mat(
         if (cnt >= min_points_for_col)
         {
             effective_min_x = x;
+        }
+        else
+        {
+            break;
         }
     }
 
