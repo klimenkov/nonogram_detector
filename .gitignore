@@ -19,3 +19,4 @@ Thumbs.db
 
 # Generated cell extraction directories
 cells_*/
+scratch/
