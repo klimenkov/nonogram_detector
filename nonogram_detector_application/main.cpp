@@ -478,28 +478,10 @@ void solve_and_export(
     // In each row and column, clue numbers are packed contiguously against the
     // main grid boundary. Any stray numbers separated from the main clue group
     // by empty cells (e.g. margin shadow, binding artifacts, stray marks) are dropped.
-    auto const trim_strays = [](std::vector<ng::ClueCell>& line) {
-        if (line.empty()) return;
-        int end = static_cast<int>(line.size()) - 1;
-        while (end >= 0 && line[end].digit < 1)
-        {
-            --end;
-        }
-        if (end < 0) return;
-        int start = end;
-        while (start >= 0 && line[start].digit >= 1)
-        {
-            --start;
-        }
-        for (int k = 0; k <= start; ++k)
-        {
-            line[k] = ng::ClueCell{};
-        }
-    };
     for (auto& row : decoded.rows)
-        trim_strays(row);
+        ng::trim_disconnected_strays(row, static_cast<int>(W));
     for (auto& col : decoded.cols)
-        trim_strays(col);
+        ng::trim_disconnected_strays(col, static_cast<int>(H));
 
     // Structural consistency + correction layer between decode and solve.
     ng::ConsistencyReport rep;

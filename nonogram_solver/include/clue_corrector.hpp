@@ -71,4 +71,10 @@ ConsistencyReport analyze_consistency(DecodedCells const& cells, int width, int 
 DecodedCells correct_clues(DecodedCells const& cells, int width, int height,
                            ConsistencyReport& report);
 
+// Trims disconnected stray numbers in a clue line (e.g. margin shadow, binding
+// artifacts, stray marks). Discards digit groups separated from the main clue
+// block by >= 2 empty cells, or by 1 empty cell if keeping the group causes the
+// clue sequence to overflow max_axis_length (when > 0).
+void trim_disconnected_strays(std::vector<ClueCell>& line, int max_axis_length = 0);
+
 }

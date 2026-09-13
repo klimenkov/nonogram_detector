@@ -220,4 +220,94 @@ DecodedCells correct_clues(DecodedCells const& cells, int width, int height,
     return out;
 }
 
+void trim_disconnected_strays(std::vector<ClueCell>& line, int max_axis_length)
+{
+    if (line.empty())
+        return;
+
+    // Find the rightmost (grid-adjacent) valid clue digit
+    int r = static_cast<int>(line.size()) - 1;
+    while (r >= 0 && line[r].digit < 1)
+    {
+        --r;
+    }
+    if (r < 0)
+    {
+        return; // all empty
+    }
+
+    // Work backwards from r. Collect contiguous groups of clues.
+    // If a group is separated from the accepted clue block by >= 2 empty cells,
+    // or if separated by 1 empty cell and adding it overflows max_axis_length,
+    // then that group (and everything to its left) is trimmed.
+    int accepted_left = r;
+    while (accepted_left >= 0 && line[accepted_left].digit >= 1)
+    {
+        --accepted_left;
+    }
+
+    while (accepted_left >= 0)
+    {
+        // Count consecutive empty cells before accepted_left + 1
+        int gap_end = accepted_left;
+        int gap_start = gap_end;
+        while (gap_start >= 0 && line[gap_start].digit < 1)
+        {
+            --gap_start;
+        }
+
+        if (gap_start < 0)
+        {
+            // All remaining cells to the left are empty; nothing more to check or trim
+            break;
+        }
+
+        int const gap_size = gap_end - gap_start;
+
+        if (gap_size >= 2)
+        {
+            // Disconnected stray group separated by 2 or more empty cells
+            for (int k = 0; k <= gap_end; ++k)
+            {
+                line[k] = ClueCell{};
+            }
+            break;
+        }
+
+        // gap_size == 1: candidate previous group starts at gap_start
+        int prev_group_start = gap_start;
+        while (prev_group_start >= 0 && line[prev_group_start].digit >= 1)
+        {
+            --prev_group_start;
+        }
+
+        // Check if keeping this group would cause the line to overflow the grid axis
+        if (max_axis_length > 0)
+        {
+            // Collect clue values from prev_group_start + 1 to line.size() - 1
+            std::vector<int> candidate_clues;
+            for (int k = prev_group_start + 1; k < static_cast<int>(line.size()); ++k)
+            {
+                if (line[k].digit >= 1)
+                {
+                    candidate_clues.push_back(line[k].digit);
+                }
+            }
+            if (clue_line_min_size(candidate_clues) > max_axis_length)
+            {
+                // Overflow: drop this group and everything to its left
+                for (int k = 0; k <= gap_end; ++k)
+                {
+                    line[k] = ClueCell{};
+                }
+                break;
+            }
+        }
+
+        // Accept this group and continue scanning further left
+        accepted_left = prev_group_start;
+    }
 }
+
+}
+

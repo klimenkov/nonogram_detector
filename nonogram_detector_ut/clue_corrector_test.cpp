@@ -152,6 +152,54 @@ void test_correct()
           "row-14-style adjacent clues preserved as seven clues");
 }
 
+// ---------- trim_disconnected_strays ----------
+void test_trim_strays()
+{
+    std::cout << "case: trim_disconnected_strays\n";
+
+    // Empty vector stays empty
+    std::vector<ng::ClueCell> empty;
+    ng::trim_disconnected_strays(empty, 10);
+    check(empty.empty(), "empty line unchanged");
+
+    // All empty cells stay empty
+    std::vector<ng::ClueCell> all_empty = { cell(-1), cell(-1) };
+    ng::trim_disconnected_strays(all_empty, 10);
+    check(all_empty[0].digit == -1 && all_empty[1].digit == -1, "all-empty line unchanged");
+
+    // Contiguous clues packed against grid boundary (rightmost) are untouched
+    std::vector<ng::ClueCell> contig = { cell(-1), cell(3), cell(5), cell(2) };
+    ng::trim_disconnected_strays(contig, 10);
+    check(eq_line(ng::group_clue_line(contig), {3, 5, 2}), "contiguous clues untouched");
+
+    // Stray number separated by gap >= 2 is trimmed
+    std::vector<ng::ClueCell> stray_gap2 = { cell(7), cell(-1), cell(-1), cell(3), cell(2) };
+    ng::trim_disconnected_strays(stray_gap2, 10);
+    check(stray_gap2[0].digit == -1 && stray_gap2[1].digit == -1 && stray_gap2[2].digit == -1,
+          "stray separated by gap >= 2 is cleared");
+    check(eq_line(ng::group_clue_line(stray_gap2), {3, 2}), "valid clue block preserved after stray drop");
+
+    // OCR false negative (gap == 1) that fits within grid axis is preserved
+    std::vector<ng::ClueCell> ocr_fn_fits = { cell(-1), cell(3), cell(-1), cell(2) };
+    ng::trim_disconnected_strays(ocr_fn_fits, 10);
+    check(eq_line(ng::group_clue_line(ocr_fn_fits), {3, 2}),
+          "OCR false negative with gap 1 that fits is preserved");
+
+    // Stray separated by gap == 1 that overflows max_axis_length is trimmed
+    std::vector<ng::ClueCell> stray_overflow = { cell(8), cell(-1), cell(8) };
+    ng::trim_disconnected_strays(stray_overflow, 10); // 8 + 8 + 1 = 17 > 10
+    check(stray_overflow[0].digit == -1 && stray_overflow[1].digit == -1,
+          "overflowing prefix across gap 1 is trimmed");
+    check(eq_line(ng::group_clue_line(stray_overflow), {8}),
+          "boundary clue preserved when prefix overflows");
+
+    // Mixed case: stray across gap >= 2, and legitimate interior gap 1 that fits
+    std::vector<ng::ClueCell> mixed = { cell(6), cell(-1), cell(-1), cell(3), cell(-1), cell(2) };
+    ng::trim_disconnected_strays(mixed, 10);
+    check(mixed[0].digit == -1, "outer stray dropped");
+    check(eq_line(ng::group_clue_line(mixed), {3, 2}), "interior gap 1 clues preserved");
+}
+
 }
 
 int run_clue_corrector_tests()
@@ -161,6 +209,7 @@ int run_clue_corrector_tests()
     test_min_size();
     test_consistency();
     test_correct();
+    test_trim_strays();
 
     for (auto const& f : failures)
         std::cerr << "clue_corrector: " << f << "\n";
